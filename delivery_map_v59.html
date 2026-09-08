@@ -1,0 +1,3942 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>配送マップ 試作1号機</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root{
+    --blue:#4FA0D6;
+    --green:#6B9080;
+    --red:#D6453F;
+    --orange:#E8862E;
+    --ink:#1f2937;
+    --paper:#ffffff;
+    --sub:#6b7280;
+    --line:#e5e7eb;
+    --bg:#f3f4f6;
+    --header-h:56px; /* 実際の高さはJSでheader要素から測って上書きする（機種による差を自動で吸収） */
+  }
+
+  /* ---------- ダークモード ---------- */
+  html[data-theme="dark"]{
+    --ink:#e5e7eb;
+    --paper:#1f2937;
+    --bg:#0f172a;
+    --sub:#9ca3af;
+    --line:#374151;
+  }
+  /* CSS変数化されていない、個別にハードコードされた白背景の要素はここで上書きする */
+  html[data-theme="dark"] #legend{ background:rgba(31,41,55,.92); }
+  html[data-theme="dark"] .btn-group-panel{ background:rgba(31,41,55,.95); }
+  html[data-theme="dark"] #undoBtn,
+  html[data-theme="dark"] #settingsBtn,
+  html[data-theme="dark"] #trashBtn,
+  html[data-theme="dark"] #searchBtn{ background:rgba(31,41,55,.95) !important; color:var(--ink) !important; }
+  html[data-theme="dark"] .corner-picker{ background:#111827; }
+  html[data-theme="dark"] .style-btn.selected{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .btn-primary{ background:#4b5563; color:#fff; }
+  html[data-theme="dark"] .btn-secondary{ background:#374151; color:var(--ink); border:1px solid #4b5563; }
+  html[data-theme="dark"] .btn-danger{ background:#450a0a; color:#fca5a5; }
+  html[data-theme="dark"] .copy-btn{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .copy-btn.copied{ background:#064e3b; color:#6ee7b7; }
+  html[data-theme="dark"] .toggle-btn{ background:#111827; border-color:#374151; color:var(--ink); }
+  html[data-theme="dark"] .weight-swatch, html[data-theme="dark"] .color-swatch{ border-color:#374151; }
+  html[data-theme="dark"] .toggle-btn.on{ background:#064e3b; border-color:#10b981; color:#6ee7b7; }
+  html[data-theme="dark"] #drawBar, html[data-theme="dark"] #stampBar{ background:rgba(31,41,55,.97) !important; }
+  html[data-theme="dark"] #drawHintRow{ color:var(--sub); }
+
+  /* 描画中、メニュー類が邪魔になる場所を描けるよう、一時的にすべて隠せるようにする */
+  body.ui-hidden .corner-stack,
+  body.ui-hidden #drawBar,
+  body.ui-hidden #stampBar,
+  body.ui-hidden #hint{ display:none !important; }
+  html[data-theme="dark"] #newOverlay .sheet.type-delivery{ background:#4a2c17; }
+  html[data-theme="dark"] #newOverlay .sheet.type-parking{ background:#1e3a5f; }
+  /* 地図タイル自体を少し暗めに寄せる（白飛びを抑え、夜間の目の負担を減らす） */
+  html[data-theme="dark"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
+
+  /* ---------- 文字を大きくする（メモ・パスワードなどが見えにくい人向け） ---------- */
+  html[data-text-size="large"] #detailMemo,
+  html[data-text-size="large"] #detailBoxPassword{ font-size:19px; line-height:1.6; }
+  html[data-text-size="large"] #memoInput,
+  html[data-text-size="large"] #boxPasswordInput{ font-size:17px; padding:13px 14px; }
+  html[data-text-size="large"] .field-label{ font-size:14px; }
+  html[data-text-size="large"] #legend{ font-size:14px; line-height:2; }
+  html[data-text-size="large"] .detail-type,
+  html[data-text-size="large"] .detail-warn{ font-size:14px; padding:6px 12px; }
+  html[data-text-size="large"] #searchResults div{ font-size:15px !important; }
+  html[data-text-size="large"] .sheet h2{ font-size:19px; }
+  html[data-text-size="large"] #detailTime{ font-size:13px; }
+  *{box-sizing:border-box;}
+  /* ボタンをタップした際にブラウザ標準で出る青い縁取り・ハイライトを消す。
+     消さないと、押した後もその場に留まるボタン（設定の位置選択など）で
+     このブラウザ標準の青が目立って残ってしまう。 */
+  button{ outline:none; -webkit-tap-highlight-color:transparent; color:inherit; font-family:inherit; }
+  /* input/textarea/selectも、ボタンと同じ理由（ブラウザ標準では周りの色を引き継がない）で
+     ダークモードだと見えなくなる不具合が繰り返し起きたため、共通の土台として一括で対応する。
+     個別の要素にさらに細かい指定をしている場合は、そちらが優先される。 */
+  input, textarea, select{
+    background:var(--paper); color:var(--ink); border-color:var(--line);
+    font-family:inherit;
+  }
+  button:focus{ outline:none; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    overscroll-behavior:none;
+  }
+  #app{ position:fixed; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column; }
+
+  /* ヘッダー */
+  #header{
+    background:var(--paper);
+    padding:10px 14px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line);
+    z-index:500;
+    flex-shrink:0;
+  }
+  #header h1{ font-size:15px; margin:0; font-weight:700; }
+  #header .count{ font-size:12px; color:var(--sub); }
+
+  /* 地図 */
+  #map{ flex:1; position:relative; z-index:1; }
+
+  /* ---------- 画面の四隅に、ボタン類を自動で重ならないよう積む仕組み ----------
+     position:fixedの数値を個別に決め打ちすると、機種やボタンの数によって
+     重なりが起きる（実際にズームボタンとモードメニューが重なっていた）。
+     四隅それぞれをflexの縦積みコンテナにし、そこに入れたものを上から
+     （下の隅は下から）順に自動で並べることで、重なりをなくす。 */
+  .corner-stack{
+    position:fixed; z-index:650;
+    display:flex; flex-direction:column; gap:8px;
+    pointer-events:none; /* 何も無い場所は地図へのタップをそのまま通す */
+    max-width:72vw;
+    max-height:calc(100vh - var(--header-h) - 16px); /* 入りきらない分は下のスクロールに譲る */
+    overflow-y:auto;
+  }
+  .corner-stack > *{ pointer-events:auto; flex-shrink:0; }
+  .corner-stack.pos-top-left{ top:calc(var(--header-h) + 8px); left:8px; align-items:flex-start; }
+  .corner-stack.pos-top-right{ top:calc(var(--header-h) + 8px); right:8px; align-items:flex-end; }
+  .corner-stack.pos-bottom-left{ bottom:12px; left:8px; align-items:flex-start; flex-direction:column-reverse; }
+  .corner-stack.pos-bottom-right{ bottom:12px; right:8px; align-items:flex-end; flex-direction:column-reverse; }
+
+  /* 中身が収まりきらず、スクロールが必要になった隅を目立たせる。
+     box-shadowはその要素自身のoverflow設定では切り取られないので、
+     スクロール枠の縁取りとして確実に見える。 */
+  .corner-stack.is-scrollable{
+    box-shadow:0 0 0 2px rgba(79,160,214,.4), 0 2px 10px rgba(0,0,0,.15);
+    border-radius:14px;
+  }
+  .corner-stack.is-scrollable::-webkit-scrollbar{ width:5px; }
+  .corner-stack.is-scrollable::-webkit-scrollbar-thumb{ background:rgba(79,160,214,.45); border-radius:3px; }
+  .corner-stack.is-scrollable::-webkit-scrollbar-track{ background:transparent; }
+
+  /* ---------- 画面焼き付き対策 ----------
+     ヘッダーや四隅のボタン類は、使用中ずっと同じ場所・同じ色で表示され続ける。
+     有機ELディスプレイの焼き付きを避けるため、数分おきにJSが1〜2pxだけ
+     こっそり位置をずらす（transition でなめらかに、かつ気づかれない程度に）。 */
+  #header, .corner-stack{ transition:transform 4s ease; }
+
+  .btn-group-panel{
+    background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+    display:flex; flex-direction:column; padding:4px; gap:4px;
+  }
+  .zoom-btn{
+    width:40px; height:40px; border:none; background:transparent; border-radius:10px;
+    font-size:20px; font-weight:700; color:var(--ink); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  .zoom-btn:active{ background:#f3f4f6; }
+
+  /* 横向き・画面が低い端末対策：縦積みだとメニューが画面からはみ出して
+     他の要素と重なるため、
+     ・アイコン類は1行2個までにして折り返す（高さを節約）
+     ・凡例（配達先／停車位置など）は横並びにして、上のメニュー用の縦の余白を確保する */
+  @media (max-height:480px){
+    .btn-group-panel{
+      flex-direction:row; flex-wrap:wrap;
+      width:92px; /* アイコン2個ぶんの幅。3個目からは自動で次の行へ折り返す */
+    }
+    .mode-btn{ width:40px; padding:6px 4px; }
+    .mode-btn span.mode-label{ display:none; }
+    .zoom-btn{ width:40px; height:40px; }
+    .corner-stack{ max-width:92vw; }
+    #legend{ display:flex; flex-direction:row; flex-wrap:wrap; gap:6px 14px; align-items:center; }
+  }
+
+  .corner-picker{ display:flex; background:#f3f4f6; border-radius:999px; padding:2px; flex-wrap:wrap; margin-bottom:16px; }
+
+  /* 現在地マーカー */
+  .me-dot{ width:16px; height:16px; border-radius:50%; background:var(--blue);
+    border:3px solid #fff; box-shadow:0 0 0 2px rgba(79,160,214,.5); }
+  .me-pulse{ position:absolute; top:-10px; left:-10px; width:36px; height:36px;
+    border-radius:50%; background:rgba(79,160,214,.25); animation:pulse 2s infinite; }
+  @keyframes pulse{ 0%{transform:scale(.5);opacity:1;} 100%{transform:scale(1.6);opacity:0;} }
+
+  /* 地点ピン */
+  .pin{ width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+    box-shadow:0 2px 5px rgba(0,0,0,.35); border:2px solid #fff; position:relative; }
+  .pin-inner{ position:absolute; top:6px; left:6px; width:14px; height:14px; border-radius:50%; background:#fff; }
+
+  /* ピン横の名前ラベル：ゼンリンの住宅地図のように、地図を見ただけで
+     「誰の場所か」が分かることを重視する。拡大しすぎると文字だらけになるため、
+     ある程度拡大したときだけ出す。設定でも表示/非表示を切り替えられる。 */
+  .pin-name-label{
+    display:none;
+    position:absolute; top:2px; left:32px; white-space:nowrap;
+    background:rgba(255,255,255,.92); color:#1f2937;
+    font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
+    box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
+  }
+  #map.zoom-close:not(.hide-name-labels) .pin-name-label{ display:block; }
+
+  /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
+  .building-name-label{
+    display:none;
+    transform:translate(-50%, -50%); white-space:nowrap;
+    background:rgba(255,255,255,.92); color:#1f2937;
+    font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
+    box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
+  }
+  #map.zoom-close:not(.hide-name-labels) .building-name-label{ display:block; }
+  .badge{ position:absolute; transform:rotate(45deg); font-size:12px; line-height:1;
+    background:#fff; border-radius:50%; width:16px; height:16px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  .badge-photo{ top:-6px; right:-8px; }
+  .badge-warn{ bottom:-6px; right:-8px; color:var(--red); }
+
+  /* フローティングボタン */
+  .fab{
+    background:var(--paper); border:1px solid var(--line); border-radius:999px;
+    padding:10px 16px; font-size:13px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);
+    display:flex; align-items:center; gap:6px; cursor:pointer;
+  }
+
+  /* 凡例 */
+  #legend{
+    background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:10px;
+    padding:8px 10px; font-size:11px; line-height:1.7; box-shadow:0 2px 8px rgba(0,0,0,.1);
+  }
+  #legend .row{ display:flex; align-items:center; gap:6px; }
+  #legend .dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* ヒント */
+  #hint{
+    position:fixed; top:64px; left:50%; transform:translateX(-50%);
+    background:rgba(31,41,55,.9); color:#fff; font-size:12px; padding:8px 14px; border-radius:999px;
+    z-index:600; white-space:nowrap; transition:opacity .4s;
+  }
+
+  /* ボトムシート共通 */
+  .sheet-overlay{
+    position:fixed; top:0; right:0; bottom:0; left:0; background:rgba(0,0,0,.35); z-index:900;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .sheet-overlay.open{ display:flex; }
+  /* 線・スタンプの編集画面は、開いたままでも地図側のドラッグ操作ができるようにする */
+  #drawingEditOverlay, #stampEditOverlay{ background:transparent; pointer-events:none; }
+  #drawingEditOverlay .sheet, #stampEditOverlay .sheet,
+  #drawingEditOverlay .mini-panel, #stampEditOverlay .mini-panel{ pointer-events:auto; }
+  .mini-panel{
+    background:var(--paper); border-radius:14px; padding:12px 14px;
+    box-shadow:0 4px 20px rgba(0,0,0,.25); max-width:340px;
+  }
+  .sheet{
+    background:var(--paper); width:100%; max-width:480px; border-radius:16px 16px 0 0;
+    padding:16px 18px calc(18px + env(safe-area-inset-bottom));
+    max-height:85vh; overflow-y:auto;
+    box-shadow:0 -4px 20px rgba(0,0,0,.25);
+    transition:background-color .2s ease;
+    position:relative;
+  }
+  .sheet h2{ margin:0 0 12px; font-size:16px; }
+  .sheet .handle{ width:36px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 12px; }
+  /* 開いたウィンドウの右上に置く、閉じる(✕)ボタン。下までスクロールしなくても閉じられるようにする */
+  .sheet-close-x{
+    position:absolute; top:12px; right:14px; z-index:5;
+    width:28px; height:28px; border-radius:50%; border:none;
+    background:#f3f4f6; color:var(--sub); font-size:14px; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  html[data-theme="dark"] .sheet-close-x{ background:#374151; color:var(--ink); }
+
+  /* 配達先/停車位置どちらの入力画面かを、スクロールしても見失わないよう
+     フォーム全体の背景色で常時わかるようにする（文字を読まなくても一目で判断できる） */
+  #newOverlay .sheet.type-delivery{ background:#fff7ed; }
+  #newOverlay .sheet.type-parking{ background:#eff6ff; }
+  #newOverlay .sheet.type-delivery input,
+  #newOverlay .sheet.type-delivery textarea,
+  #newOverlay .sheet.type-delivery select,
+  #newOverlay .sheet.type-parking input,
+  #newOverlay .sheet.type-parking textarea,
+  #newOverlay .sheet.type-parking select{ background:var(--paper); } /* 入力欄自体は白のまま見やすく */
+
+  /* 種類選択ボタンは上部に固定し、下の項目までスクロールしても見失わないようにする */
+  /* 登録・編集シート：ヘッダー(見出し・種類選択)／本文（スクロール）／フッター(ボタン)を分離。
+     こうすることで、スクロールバーが本文部分だけにかかり、ヘッダー・フッターにはかからない。 */
+  .sheet.sheet-flex{ display:flex; flex-direction:column; padding:0; max-height:85vh; }
+  .sheet-fixed-top{ flex-shrink:0; padding:16px 18px 10px; }
+  .sheet-scroll-body{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:0 18px 4px; }
+  .sheet-fixed-bottom{
+    flex-shrink:0; padding:10px 18px calc(10px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line);
+  }
+
+  .type-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .type-btn{
+    flex:1; padding:14px 8px; border-radius:10px; border:2px solid var(--line);
+    background:#fafafa; font-size:14px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
+    transition:background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:#fff; box-shadow:0 2px 8px rgba(232,134,46,.35); }
+  .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(79,160,214,.35); }
+
+  label.field-label{ display:block; font-size:12px; color:var(--sub); margin:12px 0 6px; font-weight:600; }
+  textarea, input[type=file]{
+    width:100%; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:14px;
+    font-family:inherit; resize:vertical;
+  }
+  textarea{ min-height:70px; }
+
+  .attn-row{ display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; background:#fef2f2;
+    border-radius:10px; }
+  .attn-row input{ width:18px; height:18px; }
+  .attn-row span{ font-size:13px; color:#991b1b; }
+
+  #photoPreview{ margin-top:10px; max-width:100%; border-radius:10px; display:none; }
+  .thumb{ position:relative; width:90px; height:90px; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .thumb .thumb-remove{ position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:50%;
+    background:rgba(0,0,0,.6); color:#fff; border:none; font-size:12px; line-height:1; cursor:pointer; }
+  #detailPhotos img{ width:100%; border-radius:10px; display:block; }
+
+  .btn-row{ display:flex; gap:10px; margin-top:18px; }
+  .btn{
+    flex:1; padding:13px; border-radius:10px; border:none; font-size:14px; font-weight:700; cursor:pointer;
+  }
+  .btn-primary{ background:var(--ink); color:#fff; }
+  .btn-secondary{ background:#f3f4f6; color:var(--ink); }
+  .btn-danger{ background:#fef2f2; color:var(--red); }
+
+  /* 詳細シート */
+  .info-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:11px 0; border-bottom:1px solid var(--line); }
+  .info-row:last-child{ border-bottom:none; }
+  .info-row-label{ font-size:11px; color:var(--sub); margin-bottom:3px; }
+  .info-row-value{ font-size:14px; color:var(--ink); word-break:break-all; line-height:1.5; }
+  .copy-btn{ flex-shrink:0; background:#f3f4f6; border:none; border-radius:8px; padding:7px 11px;
+    font-size:12px; color:var(--ink); white-space:nowrap; font-weight:600; }
+  .copy-btn.copied{ background:#dcfce7; color:#166534; }
+  .detail-type{ display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:700;
+    padding:4px 10px; border-radius:999px; margin-bottom:10px; }
+  .detail-type.delivery{ background:#fff7ed; color:var(--orange); }
+  .detail-type.parking{ background:#eff6ff; color:var(--blue); }
+  .detail-warn{ display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--red);
+    background:#fef2f2; padding:4px 10px; border-radius:999px; margin-left:6px; font-weight:700; }
+  #detailPhoto{ width:100%; border-radius:10px; margin:10px 0; display:none; }
+  #detailMemo{ font-size:14px; line-height:1.6; white-space:pre-wrap; color:var(--ink); min-height:20px; }
+  #detailMemo.empty{ color:var(--sub); font-style:italic; }
+  #detailTime{ font-size:11px; color:var(--sub); margin-top:10px; }
+
+  /* モード切り替え・描画・スタンプ関連 */
+  .mode-btn{
+    border:none; background:transparent; padding:5px 0; border-radius:10px;
+    font-size:19px; font-weight:600; color:var(--sub); cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:1px; width:38px;
+  }
+  /* 絵文字自体の見た目の余白（フォント側の仕様でCSSの余白調整だけでは消せない）を、
+     拡大してボタン枠いっぱいに近づけることで目立たなくする */
+  .mode-icon{ display:inline-block; transform:scale(1.35); line-height:1; }
+  .mode-btn .mode-label{ font-size:8px; line-height:1; white-space:nowrap; margin-top:3px; }
+  .mode-btn.active{ background:var(--blue); color:#fff; }
+  #drawBar{ display:none; }
+  #drawBar.show{ display:flex; }
+  #stampBar.show{ display:flex; }
+  .color-swatch{
+    width:32px; height:32px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; position:relative;
+  }
+  .weight-swatch{ position:relative; }
+  /* 「選んだ色」「選んだ太さ」を、枠線の色だけに頼らず✓バッジでもはっきり示す。
+     矢印のチェックボックスと同じ考え方で、運転中などパッと見でも判断できるようにする。 */
+  .color-swatch.selected::after, .weight-swatch.selected::after{
+    content:'✓'; position:absolute; bottom:-5px; right:-5px;
+    width:17px; height:17px; border-radius:50%; background:var(--blue); color:#fff;
+    font-size:11px; font-weight:900; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .color-swatch.selected{ box-shadow:0 0 0 3px var(--blue); }
+  .style-btn{
+    border:none; background:transparent; padding:6px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; color:var(--sub); cursor:pointer;
+  }
+  .style-btn.selected{ background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .toggle-btn{
+    border:1px solid var(--line); background:#f9fafb; padding:8px 14px; border-radius:10px;
+    font-size:13px; font-weight:600; color:var(--sub); cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .toggle-btn .box{ font-size:15px; }
+  .toggle-btn.on{ background:#ecfdf5; border-color:#10b981; color:#047857; }
+  .weight-swatch{
+    width:32px; height:32px; border-radius:50%; border:2px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+  }
+  .weight-swatch span{ display:block; border-radius:50%; background:#1f2937; } /* 点は常に濃い色。テーマに関わらずスウォッチ自体が白背景のため見えるようにする */
+  .weight-swatch.selected{ border-color:var(--blue); border-width:3px; background:#eff6ff; } /* 選択中の目印は、テーマの文字色に頼らず常に同じ青にする */
+
+  /* よくある注意点タグ：長文を書かず、タップで選ぶだけにして一覧性を保つ */
+  .note-tag-btn{
+    padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+    font-size:12px; color:var(--ink); cursor:pointer; white-space:nowrap;
+  }
+  .note-tag-btn.selected{ background:#374151; color:#fff; border-color:#374151; }
+  .note-tag-chip{
+    display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px;
+    background:#374151; color:#fff; font-size:12px; white-space:nowrap;
+  }
+  .vertex-handle{
+    width:18px; height:18px; border-radius:50%; background:#fff; border:3px solid var(--ink);
+    box-shadow:0 1px 4px rgba(0,0,0,.4);
+  }
+  .stamp-pick{
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    border:2px solid transparent; border-radius:10px; padding:6px 8px; background:#fafafa; cursor:pointer;
+  }
+  .stamp-pick.selected{ border-color:var(--blue); background:#eef2ff; }
+  .stamp-pick .icon{ font-size:20px; }
+  .stamp-pick .label{ font-size:10px; color:var(--sub); }
+  .stamp-badge{
+    width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:20px; line-height:1; box-shadow:0 2px 5px rgba(0,0,0,.35); border:3px solid; background:#fff;
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="header">
+    <h1>配送マップ 試作1号機</h1>
+    <div class="count" id="pointCount">地点：0件</div>
+  </div>
+  <div id="map"></div>
+
+  <!-- お名前入力（初回は必須。閉じるボタンなし＝入力するまで先に進めない） -->
+  <div class="sheet-overlay" id="userNameOverlay" style="z-index:1000;">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h2>👤 お名前を入力してください</h2>
+      <p style="font-size:13px; color:var(--sub); line-height:1.6;">
+        誰が登録・削除したかを記録するために使います。あとで設定から変更できます。
+      </p>
+      <input type="text" id="userNameInput" placeholder="例）田中"
+        style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+      <div class="btn-row">
+        <button class="btn btn-primary" id="saveUserNameBtn" style="width:100%;">始める</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 画面の四隅：ここに入れた要素は自動で縦に並び、重ならない -->
+<div id="cornerTopLeft" class="corner-stack pos-top-left"></div>
+<div id="cornerTopRight" class="corner-stack pos-top-right"></div>
+<div id="cornerBottomLeft" class="corner-stack pos-bottom-left"></div>
+<div id="cornerBottomRight" class="corner-stack pos-bottom-right"></div>
+
+<!-- 地図の「外」に固定表示するボタン・表示類。地図の内部に置くと、
+     Android端末で地図の描画に隠れてしまうことがあるため、外に出している。
+     実際にどの隅に置くかは、初期化時にJS(applyLayoutPositions)が
+     四隅コンテナのいずれかへ移動させる。 -->
+<div id="hint" style="position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:600;">
+  地図をタップして地点を登録できます
+</div>
+<div id="legend">
+  <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
+  <div class="row"><span class="dot" style="background:var(--blue)"></span>停車位置</div>
+  <div class="row">📷 写真あり</div>
+  <div class="row">⚠️ 注意地点</div>
+  <div class="row" id="hideDoneRow" style="display:none; margin-top:4px; padding-top:4px; border-top:1px solid var(--line);">
+    <label style="display:flex; align-items:center; gap:5px; cursor:pointer;">
+      <input type="checkbox" id="hideDoneToggle" /> 未完了のみ表示
+    </label>
+  </div>
+</div>
+<button class="fab" id="recenterBtn">📍 現在地に戻る</button>
+<div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px;">
+  現在地：確認中…
+</div>
+<div id="offlineStatus" style="display:none; background:rgba(180,83,9,.9); color:#fff; font-size:11px; padding:4px 8px; border-radius:8px;">
+  📴 オフライン中（保存済みの地図のみ表示）
+</div>
+<div id="zoomStatus" style="background:rgba(17,24,39,.75); color:#fff; font-size:11px; padding:4px 8px; border-radius:8px;">
+  拡大率：-
+</div>
+
+<!-- 拡大縮小ボタン（自作。Leaflet標準のものは使わず、見た目をアプリに揃えている） -->
+<div id="zoomBar" class="btn-group-panel">
+  <button id="zoomInBtn" class="zoom-btn" title="拡大">＋</button>
+  <button id="zoomOutBtn" class="zoom-btn" title="縮小">－</button>
+</div>
+
+<!-- モード切り替え -->
+<div id="modeBar" class="btn-group-panel">
+  <button class="mode-btn active" data-mode="view" title="地図操作"><span class="mode-icon">🗺️</span><span class="mode-label">地図</span></button>
+  <button class="mode-btn" data-mode="point" title="地点"><span class="mode-icon">📍</span><span class="mode-label">地点</span></button>
+  <button class="mode-btn" data-mode="draw" title="描画"><span class="mode-icon">🖊️</span><span class="mode-label">描画</span></button>
+  <button class="mode-btn" data-mode="stamp" title="スタンプ"><span class="mode-icon">🚧</span><span class="mode-label">スタンプ</span></button>
+  <button class="mode-btn" data-mode="edit" title="修整"><span class="mode-icon">✏️</span><span class="mode-label">修整</span></button>
+</div>
+
+<!-- 元に戻す・検索・設定 -->
+<div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+  <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
+  <button id="searchBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🔍 検索</button>
+  <button id="trashBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🗑️ ゴミ箱</button>
+  <button id="settingsBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">⚙️ 設定</button>
+</div>
+
+<!-- 描画モード用サブツールバー -->
+<button id="uiHideToggleBtn" title="メニューを一時的に隠す" style="display:none; position:fixed; z-index:960;
+  height:22px; border:none; border-radius:8px; padding:0;
+  background:rgba(90,90,90,.75); color:#fff; font-size:11px; font-weight:600; line-height:1;
+  box-shadow:0 2px 6px rgba(0,0,0,.25);">▾ 隠す</button>
+
+<div id="drawBar" style="display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:650;
+  background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+  padding:8px 10px; flex-direction:column; gap:8px; max-width:92vw;">
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center;">
+    <div class="corner-picker" style="margin-bottom:0; flex-wrap:wrap;">
+      <button class="style-btn" id="stylePanBtn" data-style="pan">✋ 移動</button>
+      <button class="style-btn selected" id="styleFreeBtn" data-style="free">✏️ フリーハンド</button>
+      <button class="style-btn" id="styleStraightBtn" data-style="straight">📐 直線でつなぐ</button>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;">
+    <button class="color-swatch selected" data-color="#D6453F" style="background:#D6453F"></button>
+    <button class="color-swatch" data-color="#EAB854" style="background:#EAB854"></button>
+    <button class="color-swatch" data-color="#4FA0D6" style="background:#4FA0D6"></button>
+    <span style="width:1px; height:20px; background:var(--line);"></span>
+    <button class="weight-swatch selected" data-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+    <button class="weight-swatch" data-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+    <button class="weight-swatch" data-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+    <span style="width:1px; height:20px; background:var(--line);"></span>
+    <button class="toggle-btn" id="arrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+  </div>
+  <div id="drawHintRow" style="font-size:11px; color:var(--sub); text-align:center;">指でなぞって描けます</div>
+  <div id="straightActionsRow" style="display:none; gap:8px; justify-content:center;">
+    <button class="btn btn-secondary" id="undoVertexBtn" style="padding:8px 14px; font-size:12px;">取消</button>
+    <button class="btn btn-primary" id="finishStraightBtn" style="padding:8px 14px; font-size:12px;">✓ 決定</button>
+  </div>
+</div>
+
+<!-- スタンプモード用サブツールバー -->
+<div id="stampBar" style="display:none; position:fixed; top:64px; left:70px; right:70px; z-index:650;
+  background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+  padding:8px; display:none; flex-wrap:wrap; gap:6px; justify-content:center;"></div>
+
+<!-- 描いた線の編集シート -->
+<div class="sheet-overlay" id="drawingEditOverlay" style="align-items:flex-start; justify-content:center; padding-top:64px;">
+  <div class="mini-panel">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <button class="color-swatch" data-edit-color="#D6453F" style="background:#D6453F"></button>
+      <button class="color-swatch" data-edit-color="#EAB854" style="background:#EAB854"></button>
+      <button class="color-swatch" data-edit-color="#4FA0D6" style="background:#4FA0D6"></button>
+      <span style="width:1px; height:22px; background:var(--line);"></span>
+      <button class="weight-swatch" data-edit-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+      <button class="weight-swatch" data-edit-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+      <button class="weight-swatch" data-edit-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+      <span style="width:1px; height:22px; background:var(--line);"></span>
+      <button class="toggle-btn" id="editArrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+    </div>
+    <div id="drawingCreatorInfo" style="font-size:11px; color:var(--sub); margin-top:8px;"></div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-danger" id="deleteDrawingBtn" style="padding:9px;">削除</button>
+      <button class="btn btn-secondary" id="closeDrawingEditBtn" style="padding:9px;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- スタンプの編集シート -->
+<div class="sheet-overlay" id="stampEditOverlay" style="align-items:flex-start; justify-content:center; padding-top:64px;">
+  <div class="mini-panel">
+    <div style="font-size:13px; font-weight:600; margin-bottom:6px;" id="stampEditTitle">スタンプ</div>
+    <div id="stampCreatorInfo" style="font-size:11px; color:var(--sub); margin-bottom:6px;"></div>
+    <div id="stampRotateRow" class="btn-row" style="display:none; margin-top:0;">
+      <button class="btn btn-secondary" id="rotateLeftBtn" style="padding:9px;">⟲ 回転</button>
+      <button class="btn btn-secondary" id="rotateRightBtn" style="padding:9px;">⟳ 回転</button>
+    </div>
+    <div style="margin-top:10px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--sub);">
+        <input type="checkbox" id="stampTimeEnableInput" /> 通行できる時間帯を指定する
+      </label>
+      <div id="stampTimeInputs" style="display:none; gap:6px; align-items:center; margin-top:6px;">
+        <input type="time" id="stampTimeStartInput" style="flex:1; min-width:0; padding:6px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+        <span style="color:var(--sub);">〜</span>
+        <input type="time" id="stampTimeEndInput" style="flex:1; min-width:0; padding:6px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="btn btn-danger" id="deleteStampBtn" style="padding:9px;">削除</button>
+      <button class="btn btn-secondary" id="closeStampEditBtn" style="padding:9px;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新規登録シート -->
+<div class="sheet-overlay" id="newOverlay">
+  <div class="sheet sheet-flex">
+    <button class="sheet-close-x" id="closeNewXBtn">✕</button>
+    <div class="sheet-fixed-top">
+      <div class="handle"></div>
+      <h2 id="newSheetTitle">新しい地点を登録</h2>
+
+      <div class="type-row" id="typeRow">
+        <label class="field-label" style="width:100%; margin:0 0 6px;">種類を選んでください</label>
+        <div class="type-btn delivery" id="btnDelivery" data-type="delivery">📦 配達先</div>
+        <div class="type-btn parking" id="btnParking" data-type="parking">🅿️ 停車位置</div>
+      </div>
+    </div>
+
+    <div class="sheet-scroll-body">
+      <label class="field-label">名前・呼び名（任意）</label>
+      <input type="text" id="nameInput" placeholder="例）田中様／○○マンション301"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">住所（任意）</label>
+      <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <div id="linkedParkingWrap" style="display:none;">
+        <label class="field-label">停車位置（任意）</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:8px;">
+          <input type="checkbox" id="parkHereInput" /> ここに停車できる（配達先と同じ場所）
+        </label>
+        <div id="parkingSelectWrap">
+          <select id="linkedParkingSelect"
+            style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);">
+            <option value="">選択しない</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="field-label">写真（任意・複数枚追加できます）</label>
+      <input type="file" id="photoInput" accept="image/*" capture="environment" />
+      <div id="photoPreviewList" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;"></div>
+
+      <button type="button" class="btn btn-secondary" id="ocrPhotoBtn" style="width:100%; margin-top:8px; padding:9px; font-size:13px;">
+        📷 表札・住所プレートをスキャン
+      </button>
+      <div id="ocrResultBox" style="display:none; margin-top:8px; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 12px;">
+        <div id="ocrStatusText" style="font-size:12px; color:var(--sub);"></div>
+        <div id="ocrSplitRow" style="display:none;">
+          <label class="field-label" style="margin-top:8px;">👤 名前（候補・直接編集できます）</label>
+          <input type="text" id="ocrGuessName"
+            style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+          <label class="field-label" style="margin-top:8px;">📍 住所（候補・直接編集できます）</label>
+          <input type="text" id="ocrGuessAddress"
+            style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+          <button type="button" class="btn btn-primary" id="ocrApplyBothBtn" style="width:100%; margin-top:8px; padding:8px; font-size:13px;">
+            ✓ この内容を名前・住所欄に反映する
+          </button>
+        </div>
+        <details style="margin-top:8px;">
+          <summary style="font-size:11px; color:var(--sub); cursor:pointer;">読み取った全文を見る（うまく分かれない場合）</summary>
+          <textarea id="ocrResultText" rows="2" style="width:100%; margin-top:4px; font-size:12px;"></textarea>
+        </details>
+      </div>
+
+      <input type="file" id="ocrPhotoInput" accept="image/*" capture="environment" style="display:none;" />
+
+      <div id="boxPasswordWrap">
+        <label class="field-label">宅配BOXパスワード（任意）</label>
+        <input type="text" id="boxPasswordInput" placeholder="例）1234＃" inputmode="text"
+          autocapitalize="off" autocorrect="off" spellcheck="false"
+          style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      </div>
+
+      <label class="field-label">よくある注意点（複数選べます）</label>
+      <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
+
+      <label class="field-label">その他注意書き（任意・タグに無い内容のみ）</label>
+      <textarea id="memoInput" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
+
+      <div class="attn-row">
+        <input type="checkbox" id="attnInput" />
+        <span>⚠️ 注意が必要な地点（通行注意・軽バン不可など）</span>
+      </div>
+    </div>
+
+    <div class="sheet-fixed-bottom">
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn btn-secondary" id="cancelNewBtn">キャンセル</button>
+        <button class="btn btn-primary" id="saveNewBtn">保存する</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細シート -->
+<div class="sheet-overlay" id="detailOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeDetailXBtn">✕</button>
+    <div class="handle"></div>
+    <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
+    <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
+    <div id="detailTypeWrap"></div>
+
+    <div style="margin-top:6px;">
+      <div class="info-row" id="detailAddressRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">📍 住所</div>
+          <div class="info-row-value" id="detailAddress"></div>
+        </div>
+        <button class="copy-btn" id="copyAddressBtn">📋 コピー</button>
+      </div>
+
+      <div class="info-row" id="detailParkingRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">🚗 停車位置</div>
+          <div class="info-row-value" id="detailParkingName" style="font-weight:600;"></div>
+          <div style="font-size:12px; color:var(--sub); margin-top:3px;" id="detailParkingSub"></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+          <button class="btn btn-secondary" id="showParkingRelationBtn" style="display:none; padding:7px 10px; font-size:12px;">🗺️ 見る</button>
+          <button class="copy-btn" id="parkingSecondaryBtn" style="display:none; font-size:11px; padding:5px 8px;"></button>
+        </div>
+      </div>
+      <div id="routeLinkOptionsRow" style="display:none; padding:11px 0; border-bottom:1px solid var(--line);">
+        <div class="info-row-label">🧭 経路（停車位置から配達先までの道順、任意）</div>
+        <select id="existingRouteSelect" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--paper); color:var(--ink); margin-bottom:6px;">
+          <option value="">既存の線から選ぶ</option>
+        </select>
+        <button class="btn btn-secondary" id="drawNewRouteBtn" style="width:100%; padding:8px; font-size:12px;">✏️ 新しく描いてここに紐づける</button>
+      </div>
+
+      <div class="info-row" id="detailBoxPasswordRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">🔒 宅配BOXパスワード</div>
+          <div class="info-row-value" id="detailBoxPassword" style="font-weight:700; letter-spacing:0.05em;"></div>
+        </div>
+        <button class="copy-btn" id="copyBoxPasswordBtn">📋 コピー</button>
+      </div>
+
+      <div class="info-row" id="detailTagsRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">⚠️ 注意点</div>
+          <div id="detailTags" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:3px;"></div>
+        </div>
+      </div>
+
+      <div class="info-row" id="detailMemoRow">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">📝 その他注意書き</div>
+          <div class="info-row-value" id="detailMemo"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-secondary" id="addParkingLinkBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
+      🅿️ 停車位置を新しく登録してここに紐づける
+    </button>
+
+    <!-- 配達完了・不在などのステータス機能は今は使わない方針のため非表示にしている。
+         データ自体は残しているので、必要になれば表示を戻すだけで復活できる。 -->
+    <div style="display:none;">
+      <label class="field-label">状況</label>
+      <div class="btn-row" id="statusRow" style="margin-top:0;">
+        <button class="btn btn-secondary status-btn" data-status="pending" style="padding:9px 4px; font-size:12px;">⬜ 未対応</button>
+        <button class="btn btn-secondary status-btn" data-status="done" style="padding:9px 4px; font-size:12px;">✅ 完了</button>
+        <button class="btn btn-secondary status-btn" data-status="absent" style="padding:9px 4px; font-size:12px;">🔁 不在</button>
+      </div>
+      <div id="redeliveryRow" style="margin-top:8px; margin-bottom:12px;">
+        <label class="field-label" style="margin-top:0;">再配達予定日</label>
+        <input type="date" id="redeliveryDateInput"
+          style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      </div>
+    </div>
+
+    <div id="detailPhotos" style="display:flex; flex-direction:column; gap:8px; margin-top:6px;"></div>
+    <div id="detailTime"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="editBtn">編集する</button>
+      <button class="btn btn-danger" id="deleteBtn">削除</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeDetailBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 検索シート -->
+<div class="sheet-overlay" id="searchOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>🔍 地点を検索</h2>
+    <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
+      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+    <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
+    <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
+      見つかりませんでした
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 削除確認シート -->
+<!-- データ読み込みの確認 -->
+<div class="sheet-overlay" id="importConfirmOverlay">
+  <div class="sheet" style="max-width:380px;">
+    <div class="handle"></div>
+    <h2>📥 データを読み込みます</h2>
+    <p id="importSummaryText" style="font-size:13px; color:var(--sub); line-height:1.7; white-space:pre-line;"></p>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="importMergeBtn">追加する</button>
+      <button class="btn btn-danger" id="importReplaceBtn">置き換える</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="importCancelBtn">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- 汎用の削除確認（連打で誤って削除しないよう、表示直後はボタンを少し押せなくする） -->
+<div class="sheet-overlay" id="genericConfirmOverlay">
+  <div class="sheet" style="max-width:340px;">
+    <div class="handle"></div>
+    <h2 id="genericConfirmTitle">⚠️ 削除しますか？</h2>
+    <p id="genericConfirmMessage" style="font-size:13px; color:var(--sub); line-height:1.6;"></p>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="genericConfirmCancelBtn">キャンセル</button>
+      <button class="btn btn-danger" id="genericConfirmOkBtn">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ゴミ箱 -->
+<!-- OCR処理中の全画面表示（フォームの下の方が見えず「反応がない」ように見えるのを防ぐ） -->
+<div class="sheet-overlay" id="ocrProcessingOverlay" style="background:rgba(0,0,0,.75); align-items:center; z-index:1000;">
+  <div style="text-align:center; color:#fff;">
+    <div style="font-size:32px;">🔎</div>
+    <div id="ocrProcessingText" style="margin-top:10px; font-size:14px;">文字を読み取っています…</div>
+  </div>
+</div>
+
+<!-- 撮った写真から、住所・名前の部分だけを指でなぞって囲む画面 -->
+<div class="sheet-overlay" id="ocrCropOverlay" style="background:rgba(0,0,0,.9); align-items:center;">
+  <div style="width:100%; max-width:480px; padding:16px;">
+    <div id="ocrCropStage" style="position:relative; width:100%; height:50vh; touch-action:none; overflow:hidden; border-radius:12px; background:#000;">
+      <img id="ocrCropImage" style="width:100%; height:100%; object-fit:contain; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none;" />
+      <div id="ocrCropRect" style="position:absolute; border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.55); display:none; pointer-events:none;"></div>
+    </div>
+    <p style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
+      指でなぞって、住所・名前が書かれた部分だけを囲んでください
+    </p>
+    <div id="ocrCropStatus" style="color:#fff; text-align:center; font-size:13px; min-height:18px; margin-top:4px;"></div>
+    <div style="display:flex; justify-content:center; gap:12px; margin-top:14px;">
+      <button class="btn btn-secondary" id="ocrCropCancelBtn" style="padding:12px 22px;">キャンセル</button>
+      <button class="btn btn-primary" id="ocrCropConfirmBtn" style="padding:12px 22px; font-size:14px;">この範囲を読み取る</button>
+    </div>
+  </div>
+</div>
+
+<!-- 表札・住所プレートのスキャン用カメラ画面 -->
+<div class="sheet-overlay" id="ocrScanOverlay" style="background:rgba(0,0,0,.9); align-items:center;">
+  <div style="width:100%; max-width:480px; padding:16px;">
+    <video id="ocrVideo" autoplay playsinline muted style="width:100%; border-radius:12px; background:#000; display:block;"></video>
+    <canvas id="ocrCanvas" style="display:none;"></canvas>
+    <p style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
+      表札・住所プレートに近づいて、まっすぐ大きく写してください
+    </p>
+    <div id="ocrScanStatus" style="color:#fff; text-align:center; font-size:13px; min-height:18px; margin-top:4px;"></div>
+    <div style="display:flex; justify-content:center; gap:12px; margin-top:14px;">
+      <button class="btn btn-secondary" id="ocrScanCancelBtn" style="padding:12px 22px;">キャンセル</button>
+      <button class="btn btn-primary" id="ocrScanCaptureBtn" style="padding:12px 30px; font-size:15px;">📸 読み取る</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="trashOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeTrashXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>🗑️ ゴミ箱</h2>
+    <p id="trashRetentionNote" style="font-size:12px; color:var(--sub); margin-top:-6px;"></p>
+    <div id="trashList" style="display:flex; flex-direction:column; gap:8px; max-height:55vh; overflow-y:auto;"></div>
+    <div id="trashEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
+      ゴミ箱は空です
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeTrashBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 設定シート -->
+<div class="sheet-overlay" id="settingsOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeSettingsXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>⚙️ 設定</h2>
+
+    <label class="field-label">お名前（登録・削除の記録に使われます）</label>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="settingUserNameInput" placeholder="例）田中"
+        style="flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      <button class="btn btn-secondary" id="saveSettingUserNameBtn" style="padding:9px 12px; font-size:13px;">保存</button>
+    </div>
+
+    <label class="field-label">データのバックアップ</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      機種変更やアプリの削除に備えて、地点・線・スタンプのデータをファイルに書き出せます。
+      別の端末で「読み込み」すれば、データを引き継げます。
+    </p>
+    <div class="btn-row" style="margin-top:0; margin-bottom:16px;">
+      <button class="btn btn-secondary" id="exportDataBtn">📤 書き出す</button>
+      <button class="btn btn-secondary" id="importDataBtn">📥 読み込む</button>
+    </div>
+    <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
+
+    <label class="field-label">画面の見た目</label>
+    <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="toggle-btn" id="darkModeToggleBtn"><span class="box">⬜</span> ダークモード</button>
+      <button class="toggle-btn" id="largeTextToggleBtn"><span class="box">⬜</span> 文字を大きくする</button>
+      <button class="toggle-btn" id="showNameLabelsToggleBtn"><span class="box">✅</span> 地図に名前を表示</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px;">
+      拡大するとピンの横に登録した名前が出るようにするか（住宅地図のように、誰の場所か一目で分かるようにする機能）。
+    </p>
+
+    <label class="field-label">新しく描く線の色（初期値）</label>
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button class="color-swatch selected" data-setting-color="#D6453F" style="background:#D6453F"></button>
+      <button class="color-swatch" data-setting-color="#EAB854" style="background:#EAB854"></button>
+      <button class="color-swatch" data-setting-color="#4FA0D6" style="background:#4FA0D6"></button>
+    </div>
+
+    <label class="field-label">新しく描く線の太さ（初期値）</label>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:16px;">
+      <button class="weight-swatch selected" data-setting-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+      <button class="weight-swatch" data-setting-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+      <button class="weight-swatch" data-setting-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+    </div>
+
+    <label class="field-label">矢印（初期値）</label>
+    <div style="margin-bottom:6px;">
+      <button class="toggle-btn" id="settingArrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:4px;">
+      ここで選んだ内容が、次に描画モードを開いたときの初期状態になります。描くときにその都度変更することもできます。
+    </p>
+
+    <label class="field-label">操作メニュー（🗺️📍🖊️🚧✏️）の位置</label>
+    <div class="corner-picker" id="modeBarPositionPicker">
+      <button class="style-btn selected" data-corner="top-left">左上</button>
+      <button class="style-btn" data-corner="top-right">右上</button>
+      <button class="style-btn" data-corner="bottom-left">左下</button>
+      <button class="style-btn" data-corner="bottom-right">右下</button>
+    </div>
+
+    <label class="field-label">拡大縮小ボタンの位置</label>
+    <div class="corner-picker" id="zoomBarPositionPicker">
+      <button class="style-btn" data-corner="top-left">左上</button>
+      <button class="style-btn selected" data-corner="top-right">右上</button>
+      <button class="style-btn" data-corner="bottom-left">左下</button>
+      <button class="style-btn" data-corner="bottom-right">右下</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:-8px;">
+      同じ場所を選んでも重なりません。自動で縦に並びます。
+    </p>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeSettingsBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const STORAGE_KEY = 'delivery-points-v1';
+const USER_NAME_KEY = 'delivery-user-name-v1';
+let currentUserName = '';
+
+function loadUserName(){
+  try {
+    currentUserName = localStorage.getItem(USER_NAME_KEY) || '';
+  } catch (e) {
+    currentUserName = '';
+  }
+  if (!currentUserName) {
+    document.getElementById('userNameOverlay').classList.add('open');
+  }
+}
+function saveUserName(name){
+  currentUserName = name.trim();
+  try { localStorage.setItem(USER_NAME_KEY, currentUserName); } catch (e) { console.error('名前の保存に失敗', e); }
+}
+document.getElementById('saveUserNameBtn').addEventListener('click', () => {
+  const val = document.getElementById('userNameInput').value.trim();
+  if (!val) {
+    document.getElementById('userNameInput').style.borderColor = 'var(--red)';
+    return;
+  }
+  saveUserName(val);
+  document.getElementById('userNameOverlay').classList.remove('open');
+});
+const TRASH_KEY = 'delivery-trash-v1';
+const TRASH_RETENTION_DAYS = 30; // 削除してからこの日数は復元できるようにしておく
+let trash = [];
+
+async function loadTrash(){
+  try {
+    const raw = localStorage.getItem(TRASH_KEY);
+    trash = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    trash = [];
+  }
+  const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const before = trash.length;
+  trash = trash.filter(t => t.deletedAt >= cutoff);
+  if (trash.length !== before) await saveTrash(); // 期限切れ分は読み込み時に掃除しておく
+}
+async function saveTrash(){
+  try {
+    localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
+  } catch (e) { console.error('ゴミ箱の保存に失敗', e); }
+}
+async function moveToTrash(itemType, data){
+  trash.unshift({ id: 'trash_' + Date.now() + '_' + Math.random().toString(36).slice(2,7), itemType, data, deletedAt: Date.now(), deletedBy: currentUserName });
+  await saveTrash();
+}
+async function restoreFromTrash(trashId){
+  const item = trash.find(t => t.id === trashId);
+  if (!item) return;
+  if (item.itemType === 'point') { points.push(item.data); await savePoints(); renderAllMarkers(); }
+  else if (item.itemType === 'drawing') { drawings.push(item.data); await saveDrawings(); renderAllDrawings(); }
+  else if (item.itemType === 'stamp') { stamps.push(item.data); await saveStamps(); renderAllStamps(); }
+  trash = trash.filter(t => t.id !== trashId);
+  await saveTrash();
+  renderTrashList();
+}
+const DRAWINGS_KEY = 'delivery-drawings-v1';
+const STAMPS_KEY = 'delivery-stamps-v1';
+const SETTINGS_KEY = 'delivery-draw-settings-v1';
+let points = [];          // {id, lat, lng, type, memo, photo, attention, createdAt}
+let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
+let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
+let map, myMarker, markersLayer, buildingOutlineLayer, drawingsLayer, stampsLayer;
+let pendingLatLng = null;
+let pendingType = null;
+let pendingPhotos = []; // 複数枚の写真を扱う
+let selectedPointId = null;
+let parkingRelationLayer = null; // 「地図で位置関係を見る」で一時的に表示する線・マーカー
+let editingPointId = null; // nullなら新規登録、値が入っていれば既存地点の編集
+
+let currentMode = 'view'; // 'view'(地図操作) | 'point' | 'draw' | 'stamp' | 'edit'(修整)
+let pendingParkingLinkTargetId = null; // 「停車位置を新しく登録してここに紐づける」の対象
+let pendingRouteLinkTargetId = null; // 「経路を新しく描いてここに紐づける」の対象
+let currentDrawColor = '#D6453F';
+let currentLineWeight = 3;
+let modeBarPosition = 'top-left';   // 操作メニューをどの隅に置くか
+let zoomBarPosition = 'top-right';  // ズームボタンをどの隅に置くか
+let drawStyle = 'free'; // 'pan'(移動) | 'free'(フリーハンド) | 'straight'(点から点へ直線)
+let arrowEnabled = false; // フリーハンド／直線のどちらにも付けられる矢印ON/OFF
+let darkModeEnabled = false;
+let largeTextEnabled = false;
+let showNameLabelsEnabled = true; // デフォルトはON（誰の場所か分かることを重視する方針のため）
+let currentStampType = 'no_entry';
+let selectedDrawingId = null;
+let selectedStampId = null;
+let lineDragState = null; // 線全体を移動中の状態 { d, startLatLng, originalPoints }
+let activeStrokePoints = null;
+let activeStrokeLine = null;
+let straightLineInProgress = null; // { points:[latlng,...], previewLine }
+let actionHistory = []; // 元に戻す用：{type:'point'|'drawing'|'stamp', id}
+
+// 長文を書かなくて済むよう、経験則としてよく出てくる注意点をタグ化しておく。
+// タグに無い内容だけ、下の自由記述欄に書いてもらう想定。
+const NOTE_TAGS = [
+  // 🚗 車に関する事
+  { id:'narrow_road',  emoji:'🚗', label:'道が狭い',       group:'car' },
+  { id:'parking_far',  emoji:'🅿️', label:'停車位置が遠い', group:'car' },
+  { id:'can_turn',     emoji:'🔄', label:'転回可能',       group:'car' },
+  { id:'back_in',      emoji:'↩️', label:'バックで進入',   group:'car' },
+  // 🏠 客先の情報
+  { id:'elderly',      emoji:'👴', label:'高齢者',         group:'customer' },
+  { id:'daytime_out',  emoji:'☀️', label:'日中不在がち',   group:'customer' },
+  { id:'autolock',     emoji:'🔐', label:'オートロック',   group:'customer' },
+  { id:'no_elevator',  emoji:'🪜', label:'エレベーター無し', group:'customer' },
+  { id:'bell_broken',  emoji:'🔔', label:'呼び鈴故障',     group:'customer' },
+  // 📌 その他
+  { id:'dog',          emoji:'🐕', label:'犬注意',         group:'other' },
+  { id:'dark',         emoji:'🌙', label:'暗いので注意',   group:'other' },
+  { id:'construction', emoji:'🚧', label:'付近工事中',     group:'other' },
+];
+const NOTE_TAG_GROUPS = [
+  { id:'car',      label:'🚗 車に関する事' },
+  { id:'customer', label:'🏠 客先の情報' },
+  { id:'other',    label:'📌 その他' },
+];
+let pendingTags = [];
+function buildNoteTagsUI(){
+  const wrap = document.getElementById('noteTagsWrap');
+  wrap.innerHTML = '';
+  NOTE_TAG_GROUPS.forEach(group => {
+    const groupTags = NOTE_TAGS.filter(t => t.group === group.id);
+    if (groupTags.length === 0) return;
+
+    const groupWrap = document.createElement('div');
+    groupWrap.style.cssText = 'width:100%; margin-bottom:4px;';
+
+    const label = document.createElement('div');
+    label.textContent = group.label;
+    label.style.cssText = 'font-size:11px; color:var(--sub); font-weight:600; margin-bottom:4px;';
+    groupWrap.appendChild(label);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px;';
+    groupTags.forEach(tag => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'note-tag-btn';
+      btn.dataset.tagId = tag.id;
+      btn.textContent = `${tag.emoji} ${tag.label}`;
+      btn.addEventListener('click', () => {
+        const idx = pendingTags.indexOf(tag.id);
+        if (idx === -1) pendingTags.push(tag.id); else pendingTags.splice(idx, 1);
+        btn.classList.toggle('selected', pendingTags.includes(tag.id));
+      });
+      row.appendChild(btn);
+    });
+    groupWrap.appendChild(row);
+    wrap.appendChild(groupWrap);
+  });
+}
+function setPendingTags(tags){
+  pendingTags = (tags || []).slice();
+  document.querySelectorAll('.note-tag-btn').forEach(btn => {
+    btn.classList.toggle('selected', pendingTags.includes(btn.dataset.tagId));
+  });
+}
+function noteTagLabel(id){
+  const tag = NOTE_TAGS.find(t => t.id === id);
+  return tag ? `${tag.emoji} ${tag.label}` : id;
+}
+// 表示する時は選んだ順ではなく、常に「車→客先→その他」の決まった順に揃える
+function sortTagsByGroup(tagIds){
+  if (!tagIds || tagIds.length === 0) return [];
+  const order = NOTE_TAGS.map(t => t.id);
+  return tagIds.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+const STAMP_TYPES = {
+  no_entry:  { emoji:'🚫', label:'進入禁止', color:'#D6453F' },
+  caution:   { emoji:'⚠️', label:'通行注意', color:'#EAB854' },
+  no_van:    { emoji:'🚐', label:'軽バン不可', color:'#D6453F' },
+  no_uturn:  { emoji:'↩️', label:'Uターン禁止', color:'#D6453F' },
+  one_way:   { emoji:'⬆️', label:'一方通行', color:'#4FA0D6' }
+};
+
+// ---------- 画面焼き付き対策 ----------
+// スマホをホルダー等に固定して長時間同じ画面を表示し続ける使い方を想定し、
+// ヘッダーや四隅のボタン類の位置を数分おきに1〜2pxだけ、気づかれない範囲でずらす。
+// 地図本体は操作で常に動くので対象外（そもそも動くものは焼き付きにくい）。
+const BURN_IN_SHIFTS = [
+  {x:0,y:0}, {x:1,y:0}, {x:1,y:1}, {x:0,y:1},
+  {x:-1,y:1}, {x:-1,y:0}, {x:-1,y:-1}, {x:0,y:-1}, {x:1,y:-1}
+];
+let burnInShiftIndex = 0;
+function applyBurnInShift(){
+  burnInShiftIndex = (burnInShiftIndex + 1) % BURN_IN_SHIFTS.length;
+  const { x, y } = BURN_IN_SHIFTS[burnInShiftIndex];
+  const transform = `translate(${x}px, ${y}px)`;
+  const header = document.getElementById('header');
+  if (header) header.style.transform = transform;
+  document.querySelectorAll('.corner-stack').forEach(el => { el.style.transform = transform; });
+}
+function startBurnInProtection(){
+  setInterval(applyBurnInShift, 4 * 60 * 1000); // 4分おき
+}
+
+
+// #legend・#recenterBtn等の「常にこの隅」の要素と、#modeBar・#zoomBarのように
+// 設定で場所を選べる要素をまとめて、四隅のコンテナへ入れ直す。
+// どこに何を置いても、コンテナ側がflexで自動的に縦積みするので重ならない。
+const CORNER_ELS = {
+  'top-left': null, 'top-right': null, 'bottom-left': null, 'bottom-right': null
+};
+function initCornerRefs(){
+  CORNER_ELS['top-left'] = document.getElementById('cornerTopLeft');
+  CORNER_ELS['top-right'] = document.getElementById('cornerTopRight');
+  CORNER_ELS['bottom-left'] = document.getElementById('cornerBottomLeft');
+  CORNER_ELS['bottom-right'] = document.getElementById('cornerBottomRight');
+}
+function placeInCorner(el, corner){
+  const container = CORNER_ELS[corner] || CORNER_ELS['top-left'];
+  if (el && container) container.appendChild(el);
+}
+function applyLayoutPositions(){
+  // 常に固定の隅に置くもの
+  placeInCorner(document.getElementById('legend'), 'bottom-left');
+  placeInCorner(document.getElementById('recenterBtn'), 'bottom-right'); // 一番下（隅に近い側）
+  placeInCorner(document.getElementById('gpsStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('offlineStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('zoomStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('utilityBar'), 'top-right');
+  // 設定で選べるもの
+  placeInCorner(document.getElementById('zoomBar'), zoomBarPosition);
+  placeInCorner(document.getElementById('modeBar'), modeBarPosition);
+
+  // 配置替えのあとに、実際の描画位置を測って高さ・取っ手の位置を決める
+  // （要素のサイズや位置が確定してから測るため、描画が一段落してから行う）
+  requestAnimationFrame(() => {
+    adjustCornerHeights();
+    positionUiHideHandle();
+  });
+}
+
+// 同じ側（左／右）の「上の隅」と「下の隅」は、互いの高さを知らずに独立して
+// 配置しているため、中身が多い・画面が低いと重なってしまうことがある。
+// そこで実際の画面上の位置を測り、上側の高さの上限を「下側にぶつからない範囲」に
+// 都度合わせる。アイコンのサイズを勘で調整するより確実に重なりを防げる。
+function adjustCornerHeights(){
+  const GAP = 10;
+  [['cornerTopLeft','cornerBottomLeft'], ['cornerTopRight','cornerBottomRight']].forEach(([topId, bottomId]) => {
+    const topEl = document.getElementById(topId);
+    const bottomEl = document.getElementById(bottomId);
+    if (!topEl || !bottomEl) return;
+    // 一旦上限をリセットしてから測る（前回の制限が残ったまま測ると縮み続けてしまうため）
+    topEl.style.maxHeight = '';
+    const topRect = topEl.getBoundingClientRect();
+    const bottomRect = bottomEl.getBoundingClientRect();
+    const available = bottomRect.top - topRect.top - GAP;
+    if (available > 0 && available < topRect.height) {
+      topEl.style.maxHeight = available + 'px';
+    }
+  });
+  // 実際に中身が収まりきらずスクロールが必要になった隅には、
+  // 見た目でひと目でわかるよう目立たせる（枠の色＋スクロールバーを強調）
+  document.querySelectorAll('.corner-stack').forEach(el => {
+    el.classList.toggle('is-scrollable', el.scrollHeight > el.clientHeight + 1);
+  });
+}
+
+
+// これにより、四隅のボタン類がヘッダーの下に自動でぴったり収まる（機種差を自動で吸収）。
+function updateHeaderHeightVar(){
+  const header = document.getElementById('header');
+  if (!header) return;
+  document.documentElement.style.setProperty('--header-h', header.offsetHeight + 'px');
+}
+
+
+window.addEventListener('DOMContentLoaded', async () => {
+  initCornerRefs();
+  updateHeaderHeightVar();
+  startBurnInProtection();
+  updateOfflineStatus();
+  loadUserName();
+  initMap();
+  buildStampBar();
+  buildNoteTagsUI();
+  loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
+  await loadPoints();
+  await loadDrawings();
+  await loadStamps();
+  await loadTrash();
+  renderAllMarkers();
+  renderAllDrawings();
+  renderAllStamps();
+  startWatchingMyLocation();
+  setTimeout(() => {
+    const hintEl = document.getElementById('hint');
+    if (hintEl) hintEl.style.opacity = '0';
+  }, 4000);
+
+  // スマホでは画面のサイズが確定するタイミングが遅れることがあり、
+  // それより先に地図が作られると真っ白のまま表示されてしまうことがある。
+  // 少し時間を置いてから、地図の大きさを一度計算し直す。
+  setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+  window.addEventListener('resize', () => {
+    if (map) map.invalidateSize();
+    updateHeaderHeightVar();
+    requestAnimationFrame(() => { adjustCornerHeights(); positionUiHideHandle(); });
+  });
+  window.addEventListener('orientationchange', () => setTimeout(() => {
+    if (map) map.invalidateSize();
+    updateHeaderHeightVar();
+    adjustCornerHeights();
+    positionUiHideHandle();
+  }, 300));
+});
+
+// ---------- 地図タイルの読み込み ----------
+// 以前使っていたOpenStreetMapの無料タイルは、Webサイトではなく「アプリとして
+// 配布されたファイルから開く」使い方を利用規約で禁止しており、ブロックされてしまった
+// （content://で直接開く今の使い方は、まさにこれに該当する）。
+// 復旧するまでの応急処置として、キー不要で使えるEsriの地図に一時的に切り替えている。
+// 恒久対応：CARTO（OpenStreetMapベースの地図）の無料APIキーを取得し次第、
+// 下のTILE_URL等を書き換える。
+const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+const TILE_OPTIONS = {
+  maxZoom: 22,
+  maxNativeZoom: 19,
+  attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), (c) OpenStreetMap contributors'
+};
+
+// キャッシュに保存済みのタイルがあればそれを使う（＝以前OSMタイルを見ていた分は
+// 引き続きオフラインで使える）。ただし新規の書き込みは一旦止めている
+// （毎回imgタグでの表示リクエストと二重になり、それがブロックの一因になったため）。
+const TILE_CACHE_NAME = 'delivery-map-tiles-v1';
+const tileCacheSupported = ('caches' in window);
+
+async function fetchTileWithCache(url, img, done){
+  if (tileCacheSupported) {
+    try {
+      const cache = await caches.open(TILE_CACHE_NAME);
+      const cached = await cache.match(url);
+      if (cached) {
+        const blob = await cached.blob();
+        img.src = URL.createObjectURL(blob);
+        done(null, img);
+        return;
+      }
+    } catch (e) { /* キャッシュが読めない場合は、そのまま通常表示に進む */ }
+  }
+  img.onload = () => done(null, img);
+  img.onerror = (e) => done(e, img);
+  img.src = url;
+}
+
+const OfflineTileLayer = L.TileLayer.extend({
+  createTile: function(coords, done){
+    const img = document.createElement('img');
+    img.setAttribute('role', 'presentation');
+    img.alt = '';
+    const url = this.getTileUrl(coords);
+    fetchTileWithCache(url, img, done);
+    return img;
+  }
+});
+
+function updateOfflineStatus(){
+  const el = document.getElementById('offlineStatus');
+  if (!el) return;
+  el.style.display = navigator.onLine ? 'none' : 'block';
+}
+window.addEventListener('online', updateOfflineStatus);
+window.addEventListener('offline', updateOfflineStatus);
+
+function initMap(){
+  // ・zoomSnap:0 → 指を離したときに「区切りの良い拡大率」へ自動で吸着させない
+  // ・bounceAtZoomLimits:false → 拡大の上限(maxZoom)に達したとき、指を離すと
+  //   ワンテンポ弾んで縮小する演出をオフにする（これが今回の主な原因でした）
+  map = L.map('map', {
+    zoomControl:false, // 自作のズームボタン(zoomBar)を使うため、標準のものはオフにする
+    zoomSnap:0,
+    zoomDelta:1,
+    bounceAtZoomLimits:false
+  }).setView([35.681236, 139.767125], 16); // 東京駅を仮の初期位置に
+  new OfflineTileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+
+  markersLayer = L.layerGroup().addTo(map);
+  buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
+  drawingsLayer = L.layerGroup().addTo(map);
+  stampsLayer = L.layerGroup().addTo(map);
+
+  // 地図の上に重ねて置いてあるボタン・凡例・ヒントをタップしたとき、
+  // その裏にある地図にまでタップが伝わって「新しい地点の登録」が誤って開かないようにする
+  [
+    document.getElementById('recenterBtn'),
+    document.getElementById('legend'),
+    document.getElementById('hint'),
+    document.getElementById('gpsStatus'),
+    document.getElementById('offlineStatus'),
+    document.getElementById('zoomStatus'),
+    document.getElementById('modeBar'),
+    document.getElementById('zoomBar'),
+    document.getElementById('drawBar'),
+    document.getElementById('stampBar'),
+    document.getElementById('utilityBar'),
+    document.getElementById('uiHideToggleBtn')
+  ].forEach(el => {
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  });
+
+  // 自作のズームボタン
+  document.getElementById('zoomInBtn').addEventListener('click', () => map.zoomIn());
+  document.getElementById('zoomOutBtn').addEventListener('click', () => map.zoomOut());
+
+  // 確認用：今の拡大率を表示する（地図データ自体の詳しさは19までで、それ以降は引き伸ばし表示）
+  const updateZoomStatus = () => {
+    const el = document.getElementById('zoomStatus');
+    if (!el) return;
+    const z = map.getZoom();
+    el.textContent = '拡大率：' + z.toFixed(2) + (z > 19 ? '（引き伸ばし表示）' : '');
+  };
+  map.on('zoom', updateZoomStatus);
+  map.on('zoomend', updateZoomStatus);
+  updateZoomStatus();
+
+  // 地図をある程度拡大したときだけ、ピンの横に名前を出す（誰の場所か一目で分かるようにする）
+  const NAME_LABEL_MIN_ZOOM = 17;
+  const updateNameLabelVisibility = () => {
+    document.getElementById('map').classList.toggle('zoom-close', map.getZoom() >= NAME_LABEL_MIN_ZOOM);
+  };
+  map.on('zoomend', updateNameLabelVisibility);
+  updateNameLabelVisibility();
+
+  // ---------- 選択中の線を全体ドラッグで移動する ----------
+  map.on('mousedown', () => {
+    if (lineDragState) map.dragging.disable(); // 線をつまんでいる間は地図が動かないようにする
+  });
+  map.on('mousemove', (e) => {
+    if (!lineDragState) return;
+    const dLat = e.latlng.lat - lineDragState.startLatLng.lat;
+    const dLng = e.latlng.lng - lineDragState.startLatLng.lng;
+    const d = lineDragState.d;
+    d.points = lineDragState.originalPoints.map(p => [p[0] + dLat, p[1] + dLng]);
+    updateDrawingRender(d);
+    // 端点ハンドルの位置も、線の移動に合わせて追従させる
+    vertexHandles.forEach((handle, i) => {
+      if (d.points[i]) handle.setLatLng(d.points[i]);
+    });
+  });
+  map.on('mouseup', async () => {
+    if (!lineDragState) return;
+    lineDragState.d.updatedAt = Date.now();
+    await saveDrawings();
+    lineDragState = null;
+    // 地図の動かし方を、今のモード・スタイルに応じた状態に戻す
+    if (currentMode === 'draw' && drawStyle !== 'pan') {
+      map.dragging.disable();
+    } else {
+      map.dragging.enable();
+    }
+  });
+
+  map.on('click', (e) => {
+    if (currentMode === 'point') openNewSheet(e.latlng);
+    else if (currentMode === 'stamp') placeStamp(e.latlng);
+    // 'draw'モードのときは、下のタッチ処理でタップとドラッグを区別して扱う
+  });
+
+  // ---------- 手書き線の描画（指でなぞる／タップ） ----------
+  // LeafletのmouseイベントはAndroidの実機で反応しないことがあるため、
+  // 画面のタッチ(touch)操作を直接検知する方式にする。
+  // また、「動かさずタップ」＝既存の線を選ぶ操作、「動かしてドラッグ」＝新しい線を描く操作、
+  // として区別することで、描画モード中でも既存の線を編集できるようにする。
+  const mapContainer = map.getContainer();
+  const DRAG_THRESHOLD_PX = 10;
+  let touchStartScreen = null;
+  let touchStartLatLng = null;
+  let dragStarted = false;
+
+  function eventToLatLng(evt){
+    const src = (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
+    const rect = mapContainer.getBoundingClientRect();
+    const point = L.point(src.clientX - rect.left, src.clientY - rect.top);
+    return map.containerPointToLatLng(point);
+  }
+  function eventScreenPoint(evt){
+    const src = (evt.changedTouches && evt.changedTouches[0]) ? evt.changedTouches[0]
+      : (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
+    // 画面全体の座標(clientX/Y)のままだと、地図の上にあるヘッダー分だけ
+    // 実際の地図コンテナの位置とズレる。eventToLatLngと同じくコンテナ基準に補正する。
+    const rect = mapContainer.getBoundingClientRect();
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+
+  function pointToSegmentDist(p, a, b){
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx*dx + dy*dy);
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t*dx), p.y - (a.y + t*dy));
+  }
+
+  // すでに描かれている線（アクティブなものに限らず）の近くを触っているかどうかを判定する。
+  // その上のタッチは、描画ではなく「長押しでの選択・移動・修整」の操作に譲るための判定。
+  function isNearAnyDrawing(screenPoint){
+    for (const d of drawings) {
+      const pixelPoints = d.points.map(p => map.latLngToContainerPoint(L.latLng(p)));
+      for (const pp of pixelPoints) {
+        if (Math.hypot(screenPoint.x - pp.x, screenPoint.y - pp.y) < 22) return true; // 端点付近
+      }
+      for (let i = 0; i < pixelPoints.length - 1; i++) {
+        if (pointToSegmentDist(screenPoint, pixelPoints[i], pixelPoints[i+1]) < 26) return true; // 線そのもの付近
+      }
+    }
+    return false;
+  }
+
+  // ---------- 長押し検出（実機のタッチ時間を自前で計測する方式）----------
+  // Leafletのlayer.on('mousedown', ...)に頼ると、スマホでは指を離した瞬間に
+  // mousedown/mouseupがまとめて発生してしまい「押している時間の長さ」を正しく測れない。
+  // そのため地図のcontainer要素へのtouchstart/touchmove/touchendを直接見て、
+  // 本物のタッチ時間を計測する方式にする。どのモードでも長押しで開けるようにする。
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD_PX = 10;
+  let longPressTimer = null;
+  let longPressStartScreen = null;
+
+  function clearLongPressTimer(){
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressStartScreen = null;
+  }
+
+  // その場所（画面座標）に地点／スタンプ／線があるかを調べる
+  function findHitObject(screenPoint){
+    for (const p of points) {
+      const anchor = map.latLngToContainerPoint(L.latLng(p.lat, p.lng));
+      // ピンのアイコンは、実際の緯度経度（=先端の位置）より見た目の丸い部分が
+      // 15pxほど上にあるため、判定もその位置に合わせてずらす
+      const visual = { x: anchor.x, y: anchor.y - 15 };
+      if (Math.hypot(screenPoint.x - visual.x, screenPoint.y - visual.y) < 24) {
+        return { type:'point', id:p.id };
+      }
+    }
+    for (const s of stamps) {
+      const pt = map.latLngToContainerPoint(L.latLng(s.lat, s.lng));
+      if (Math.hypot(screenPoint.x - pt.x, screenPoint.y - pt.y) < 22) {
+        return { type:'stamp', id:s.id };
+      }
+    }
+    for (const d of drawings) {
+      const pixelPoints = d.points.map(p => map.latLngToContainerPoint(L.latLng(p)));
+      for (const pp of pixelPoints) {
+        if (Math.hypot(screenPoint.x - pp.x, screenPoint.y - pp.y) < 22) return { type:'drawing', id:d.id };
+      }
+      for (let i = 0; i < pixelPoints.length - 1; i++) {
+        if (pointToSegmentDist(screenPoint, pixelPoints[i], pixelPoints[i+1]) < 26) return { type:'drawing', id:d.id };
+      }
+    }
+    return null;
+  }
+
+  function fireLongPress(hit){
+    if (hit.type === 'point') {
+      openDetailSheet(hit.id);
+    } else if (hit.type === 'stamp') {
+      const marker = stampMarkerById[hit.id];
+      if (marker && marker.dragging) marker.dragging.enable(); // 長押しで選ばれた間は、そのままドラッグで動かせるようにする
+      openStampEditSheet(hit.id);
+    } else if (hit.type === 'drawing') {
+      openDrawingEditSheet(hit.id);
+    }
+  }
+
+  function startLongPressTimer(screenPoint, hit){
+    clearLongPressTimer();
+    longPressStartScreen = screenPoint;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      fireLongPress(hit);
+    }, LONG_PRESS_MS);
+  }
+
+  function startTouch(evt){
+    if (evt.touches && evt.touches.length > 1) {
+      // 指が2本以上＝ピンチ操作とみなし、長押し・描画とも中断してLeaflet本来のズームに任せる
+      clearLongPressTimer();
+      cancelActiveStroke();
+      touchStartScreen = null;
+      return;
+    }
+    const sp = eventScreenPoint(evt);
+
+    // ---- 長押し判定はモードに関わらず行う（地点／スタンプ／線の上を触った場合のみ）----
+    const hit = findHitObject(sp);
+    if (hit) {
+      startLongPressTimer(sp, hit);
+      // PC（マウス）だと、ここでpreventDefaultしないとLeaflet標準の地図ドラッグが
+      // 同時に始まってしまい、長押しの前に地図が動いて判定が途中でキャンセルされる。
+      // ただしタッチ操作でこれをやると、ブラウザが本来タップ後に発生させる
+      // 「クリック相当のイベント」まで一緒に止まってしまい、修整モードでの
+      // タップによる選択（＝削除ボタンを出す入り口）が効かなくなってしまうため、
+      // マウスの場合だけに限定する。
+      if (!evt.touches) evt.preventDefault();
+    } else {
+      clearLongPressTimer();
+    }
+
+    // ---- ここから先は「描画」モードのときだけの処理 ----
+    if (currentMode !== 'draw' || drawStyle === 'pan') return;
+    if (isNearAnyDrawing(sp)) {
+      // すでにある線・端点の上のタッチは、描画としては扱わず、
+      // 長押しでの選択や、アクティブな線の移動・端点のドラッグに譲る
+      touchStartScreen = null;
+      return;
+    }
+    if (evt.touches) {
+      // タッチ操作のあとブラウザが追加で発生させる「互換用マウスイベント」を止め、
+      // 1回のタップが2回分として扱われてしまう不具合を防ぐ
+      evt.preventDefault();
+    }
+    touchStartScreen = sp;
+    touchStartLatLng = eventToLatLng(evt);
+    dragStarted = false;
+  }
+
+  function moveTouch(evt){
+    // 長押し判定中に指が動いたら（＝ドラッグ）長押し扱いをやめる
+    if (evt.touches && evt.touches.length > 1) {
+      clearLongPressTimer();
+    } else if (longPressTimer && longPressStartScreen) {
+      const sp = eventScreenPoint(evt);
+      if (Math.hypot(sp.x - longPressStartScreen.x, sp.y - longPressStartScreen.y) > LONG_PRESS_MOVE_THRESHOLD_PX) {
+        clearLongPressTimer();
+      }
+    }
+
+    if (currentMode !== 'draw' || !touchStartScreen || drawStyle !== 'free') return;
+    if (evt.touches && evt.touches.length > 1) {
+      // 描画の途中で2本目の指が触れた＝ピンチに切り替わったとみなし、描きかけの線を取り消す
+      cancelActiveStroke();
+      touchStartScreen = null;
+      return;
+    }
+    const p = eventScreenPoint(evt);
+    const dist = Math.hypot(p.x - touchStartScreen.x, p.y - touchStartScreen.y);
+
+    if (!dragStarted && dist > DRAG_THRESHOLD_PX) {
+      dragStarted = true;
+      evt.preventDefault();
+      deselectActiveDrawing(); // 新しい手書きが始まったので、直前に選択していた線は編集対象から外す
+      activeStrokePoints = [touchStartLatLng];
+      activeStrokeLine = L.polyline(activeStrokePoints, {
+        color: currentDrawColor, weight: currentLineWeight, opacity:0.85, lineCap:'round', lineJoin:'round'
+      }).addTo(map);
+    } else if (dragStarted) {
+      evt.preventDefault();
+      activeStrokePoints.push(eventToLatLng(evt));
+      activeStrokeLine.setLatLngs(activeStrokePoints);
+    }
+  }
+
+  function cancelActiveStroke(){
+    if (activeStrokeLine) map.removeLayer(activeStrokeLine);
+    activeStrokeLine = null;
+    activeStrokePoints = null;
+    dragStarted = false;
+  }
+
+  async function endTouch(evt){
+    // 発火前のタイマーが残っていたら消す（＝長押しになる前にただのタップとして指が離れた）
+    clearLongPressTimer();
+
+    if (currentMode !== 'draw' || !touchStartScreen) return;
+
+    if (drawStyle === 'free') {
+      if (dragStarted && activeStrokeLine) {
+        map.removeLayer(activeStrokeLine); // なぞっている間の一時的な線は消す
+        if (activeStrokePoints.length > 1) {
+          // なぞった形はそのまま保ちつつ、点の数だけ間引いて修整しやすくする
+          const simplified = simplifyPoints(activeStrokePoints, 0.00002);
+          const d = {
+            id: 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+            color: currentDrawColor,
+            weight: currentLineWeight,
+            style: 'free',
+            arrow: arrowEnabled,
+            points: simplified.map(p => [p.lat, p.lng]),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            createdBy: currentUserName
+          };
+          drawings.push(d);
+          actionHistory.push({ type:'drawing', id:d.id });
+          addDrawingToMap(d);
+          await saveDrawings();
+          // モード自体は切り替えず、描いたこの線だけを「アクティブ」にする。
+          // それ以外の場所は引き続き描画操作ができる。
+          await handleNewDrawingCreated(d);
+        }
+      }
+      // ドラッグしなかった（＝タップだけだった）場合は、
+      // 既存の線があればその線自身のクリック処理が反応するので、ここでは何もしない
+    } else if (drawStyle === 'straight') {
+      const p = eventScreenPoint(evt);
+      const dist = Math.hypot(p.x - touchStartScreen.x, p.y - touchStartScreen.y);
+      if (dist < DRAG_THRESHOLD_PX) {
+        addStraightVertex(touchStartLatLng); // 動いていない＝タップなので、頂点を追加する
+      }
+    }
+
+    activeStrokeLine = null;
+    activeStrokePoints = null;
+    touchStartScreen = null;
+    touchStartLatLng = null;
+    dragStarted = false;
+  }
+
+  // スマホ（タッチ操作）
+  mapContainer.addEventListener('touchstart', startTouch, { passive:false });
+  mapContainer.addEventListener('touchmove', moveTouch, { passive:false });
+  mapContainer.addEventListener('touchend', endTouch);
+  mapContainer.addEventListener('touchcancel', endTouch);
+  // PC（マウス操作、動作確認用）
+  mapContainer.addEventListener('mousedown', startTouch);
+  mapContainer.addEventListener('mousemove', moveTouch);
+  mapContainer.addEventListener('mouseup', endTouch);
+
+  // ---------- モード切り替えツールバー ----------
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingParkingLinkTargetId = null; // 手動でモードを切り替えたら、紐づけ待ちは解除する
+      pendingRouteLinkTargetId = null;
+      setMode(btn.dataset.mode);
+    });
+  });
+  document.querySelectorAll('#drawBar .color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentDrawColor = btn.dataset.color;
+      document.querySelectorAll('#drawBar .color-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  document.querySelectorAll('#drawBar .weight-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentLineWeight = Number(btn.dataset.weight);
+      document.querySelectorAll('#drawBar .weight-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  document.getElementById('stylePanBtn').addEventListener('click', () => setDrawStyle('pan'));
+  document.getElementById('styleFreeBtn').addEventListener('click', () => setDrawStyle('free'));
+  document.getElementById('styleStraightBtn').addEventListener('click', () => setDrawStyle('straight'));
+  document.getElementById('arrowToggleBtn').addEventListener('click', () => {
+    arrowEnabled = !arrowEnabled;
+    updateArrowToggleLabel();
+    saveDrawSettings();
+  });
+  document.getElementById('undoVertexBtn').addEventListener('click', () => cancelStraightLine());
+  document.getElementById('finishStraightBtn').addEventListener('click', () => finishStraightLine());
+  document.querySelectorAll('#drawingEditOverlay .weight-swatch').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const d = drawings.find(x => x.id === selectedDrawingId);
+      if (d) {
+        d.weight = Number(btn.dataset.editWeight);
+        d.updatedAt = Date.now();
+        renderAllDrawings();
+        showVertexHandles(selectedDrawingId);
+        await saveDrawings();
+      }
+    });
+  });
+
+  document.getElementById('recenterBtn').addEventListener('click', () => {
+    if (myMarker) {
+      map.setView(myMarker.getLatLng(), Math.max(map.getZoom(), 16));
+      return;
+    }
+    // まだ現在地が分かっていない場合は、ここで改めて位置情報の利用を求める
+    if (!navigator.geolocation) {
+      setGpsStatus('この端末では使えません');
+      alert('お使いのブラウザは位置情報に対応していません。');
+      return;
+    }
+    setGpsStatus('取得中…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        placeMyMarker([pos.coords.latitude, pos.coords.longitude]);
+        map.setView(myMarker.getLatLng(), 16);
+      },
+      (err) => {
+        const messages = { 1:'許可されていません', 2:'現在地を特定できません', 3:'取得がタイムアウトしました' };
+        setGpsStatus(messages[err.code] || ('エラー(' + err.code + ')'));
+        alert('現在地を取得できませんでした。スマホの設定で位置情報の利用を許可してください。');
+      },
+      { enableHighAccuracy:true, timeout:10000 }
+    );
+  });
+}
+
+// ---------- 現在地 ----------
+function setGpsStatus(text){
+  const el = document.getElementById('gpsStatus');
+  if (el) el.textContent = '現在地：' + text;
+}
+
+function placeMyMarker(latlng){
+  if (!myMarker) {
+    const icon = L.divIcon({
+      className:'',
+      html:'<div style="position:relative;"><div class="me-pulse"></div><div class="me-dot"></div></div>',
+      iconSize:[16,16],
+      iconAnchor:[8,8]
+    });
+    myMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+  } else {
+    myMarker.setLatLng(latlng); // 移動に合わせてマーカーを動かす
+  }
+  setGpsStatus('取得できました');
+}
+
+function startWatchingMyLocation(){
+  if (!navigator.geolocation) { setGpsStatus('この端末では使えません'); return; }
+
+  // 権限の状態が分かる場合は、先に画面に表示しておく
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      const labels = { granted:'許可済み（取得中…）', denied:'許可されていません（設定を確認してください）', prompt:'許可を確認中…' };
+      setGpsStatus(labels[status.state] || status.state);
+    }).catch(() => {});
+  }
+
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      const latlng = [pos.coords.latitude, pos.coords.longitude];
+      const firstTime = !myMarker;
+      placeMyMarker(latlng);
+      if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
+    },
+    (err) => {
+      console.warn('位置情報を取得できません', err);
+      const messages = { 1:'許可されていません', 2:'現在地を特定できません', 3:'取得がタイムアウトしました' };
+      setGpsStatus(messages[err.code] || ('エラー(' + err.code + ')'));
+    },
+    { enableHighAccuracy:true, maximumAge:2000, timeout:10000 }
+  );
+}
+
+// ---------- 保存データの読み書き ----------
+// スマホの普通のブラウザ（Chromeなど）でそのまま使える、標準の保存機能(localStorage)を使う
+async function loadPoints(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    points = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    points = []; // 保存データがまだ無い場合や壊れている場合は空にする
+  }
+  // 以前のバージョン（写真を1枚だけ持つ形式）のデータを、複数枚対応の形式に変換する
+  points.forEach(p => {
+    if (!p.photos) {
+      p.photos = p.photo ? [p.photo] : [];
+    }
+  });
+}
+
+async function savePoints(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+  } catch (e) {
+    console.error('保存に失敗しました', e);
+    alert('地点の保存に失敗しました。写真が大きすぎる可能性があります。');
+  }
+  updateCount();
+}
+
+function updateCount(){
+  // 「完了」件数は今は使わない方針のため、単純な件数表示に戻す
+  document.getElementById('pointCount').textContent = `地点：${points.length}件`;
+}
+
+// ---------- マーカー描画 ----------
+let hideDoneEnabled = false;
+function renderAllMarkers(){
+  markersLayer.clearLayers();
+  buildingOutlineLayer.clearLayers();
+  points
+    .filter(p => !(hideDoneEnabled && p.status === 'done'))
+    .forEach(p => {
+      addMarkerToMap(p);
+      if (p.buildingOutline) renderBuildingOutlineForPoint(p);
+    });
+  updateCount();
+}
+
+function addMarkerToMap(p){
+  // 配達完了・不在などのステータスは今は表示に使わない方針のため、
+  // ピンの色・バッジ・再配達日表示はステータスに関わらず常に通常表示にする。
+  const color = p.type === 'delivery' ? '#E8862E' : '#4FA0D6';
+  // ゼンリンの住宅地図のように「その場所に誰がいるか」が一目で分かることを重視し、
+  // ある程度拡大したらピンの横に名前を出す（詳細を開かなくても分かるようにする）。
+  // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
+  const nameLabel = (p.name && !p.buildingOutline) ? `<div class="pin-name-label">${escapeHtml(p.name)}</div>` : '';
+  const html = `
+    <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
+      <div class="pin" style="background:${color};">
+        <div class="pin-inner"></div>
+        ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
+        ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
+      </div>
+      ${nameLabel}
+    </div>`;
+  const icon = L.divIcon({ className:'', html, iconSize:[30, 30], iconAnchor:[15,30], popupAnchor:[0,-28] });
+  const marker = L.marker([p.lat, p.lng], { icon, draggable: (currentMode === 'edit') }).addTo(markersLayer);
+  marker.on('click', () => {
+    if (currentMode === 'view' || currentMode === 'edit') openDetailSheet(p.id);
+  });
+  marker.on('dragend', async () => {
+    // 実際の建物の位置に合わせて微調整できるよう、動かした先の位置を保存する
+    const latlng = marker.getLatLng();
+    p.lat = latlng.lat;
+    p.lng = latlng.lng;
+    p.updatedAt = Date.now();
+    // 位置が変わったので、建物の輪郭も新しい位置で取得し直す
+    p.buildingOutline = null;
+    p.buildingOutlineChecked = false;
+    await savePoints();
+    if (p.name) tryAttachBuildingOutline(p);
+  });
+  // 長押しの検出はcontainer側(findHitObject/fireLongPress)でまとめて行う
+}
+function formatShortDate(dateStr){
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+// ---------- 新規登録シート／編集シート（同じ画面を使い回す） ----------
+function renderPhotoPreviewList(){
+  const list = document.getElementById('photoPreviewList');
+  list.innerHTML = '';
+  pendingPhotos.forEach((photo, index) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'thumb';
+    thumb.innerHTML = `<img src="${photo}" /><button type="button" class="thumb-remove" data-index="${index}">×</button>`;
+    list.appendChild(thumb);
+  });
+  // ×ボタンで、その写真だけ削除できるようにする
+  list.querySelectorAll('.thumb-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.index);
+      pendingPhotos.splice(i, 1);
+      renderPhotoPreviewList();
+    });
+  });
+}
+
+function openNewSheet(latlng){
+  editingPointId = null;
+  pendingLatLng = latlng;
+  pendingType = null;
+  document.getElementById('ocrResultBox').style.display = 'none';
+  document.getElementById('ocrSplitRow').style.display = 'none';
+  document.getElementById('ocrResultText').value = '';
+  document.getElementById('ocrGuessName').value = '';
+  document.getElementById('ocrGuessAddress').value = '';
+  pendingPhotos = [];
+  if (pendingParkingLinkTargetId) {
+    document.getElementById('newSheetTitle').textContent = '🅿️ 停車位置を登録（自動で紐づきます）';
+  } else {
+    document.getElementById('newSheetTitle').textContent = '新しい地点を登録';
+  }
+  document.getElementById('saveNewBtn').textContent = '保存する';
+  document.getElementById('nameInput').value = '';
+  setPendingTags([]);
+  document.getElementById('addressInput').value = '';
+  document.getElementById('memoInput').value = '';
+  document.getElementById('boxPasswordInput').value = '';
+  document.getElementById('attnInput').checked = false;
+  document.getElementById('photoInput').value = '';
+  document.getElementById('linkedParkingSelect').value = '';
+  document.getElementById('parkHereInput').checked = false;
+  document.getElementById('parkingSelectWrap').style.display = 'block';
+  renderPhotoPreviewList();
+  document.getElementById('btnDelivery').classList.remove('selected');
+  document.getElementById('btnParking').classList.remove('selected');
+  document.querySelector('#newOverlay .sheet').classList.remove('type-delivery', 'type-parking');
+  document.getElementById('linkedParkingWrap').style.display = 'none';
+  document.getElementById('boxPasswordWrap').style.display = 'none'; // 種類を選ぶまでは、配達先専用の項目は隠しておく
+  document.getElementById('typeRow').style.display = pendingParkingLinkTargetId ? 'none' : 'flex';
+  if (pendingParkingLinkTargetId) selectType('parking'); // 紐づけ待ちのときは種類を固定する
+  document.getElementById('newOverlay').classList.add('open');
+}
+
+function openEditSheet(id){
+  const p = points.find(pt => pt.id === id);
+  if (!p) return;
+  document.getElementById('ocrResultBox').style.display = 'none';
+  document.getElementById('ocrSplitRow').style.display = 'none';
+  document.getElementById('ocrResultText').value = '';
+  document.getElementById('ocrGuessName').value = '';
+  document.getElementById('ocrGuessAddress').value = '';
+
+  editingPointId = id;
+  pendingLatLng = { lat: p.lat, lng: p.lng }; // 場所はそのまま変更しない
+  pendingType = p.type;
+  pendingPhotos = (p.photos || []).slice(); // 元の配列を直接いじらないようコピーする
+
+  document.getElementById('newSheetTitle').textContent = 'この地点を編集';
+  document.getElementById('saveNewBtn').textContent = '変更を保存する';
+  document.getElementById('nameInput').value = p.name || '';
+  setPendingTags(p.tags);
+  document.getElementById('addressInput').value = p.address || '';
+  document.getElementById('memoInput').value = p.memo || '';
+  document.getElementById('boxPasswordInput').value = p.boxPassword || '';
+  document.getElementById('attnInput').checked = !!p.attention;
+  document.getElementById('photoInput').value = '';
+  renderPhotoPreviewList();
+
+  selectType(p.type); // ボタンの選択状態を既存の種類に合わせる（停車位置の選択肢もここで作られる）
+  document.getElementById('parkHereInput').checked = !!p.parkHere;
+  document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
+  document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
+
+  document.getElementById('newOverlay').classList.add('open');
+}
+
+document.getElementById('btnDelivery').addEventListener('click', () => selectType('delivery'));
+document.getElementById('btnParking').addEventListener('click', () => selectType('parking'));
+
+function selectType(type){
+  pendingType = type;
+  document.getElementById('btnDelivery').classList.toggle('selected', type === 'delivery');
+  document.getElementById('btnParking').classList.toggle('selected', type === 'parking');
+  populateParkingSelect(type);
+  // 宅配BOXパスワードは配達先だけの項目（停車位置には不要）なので、種類に応じて出し分ける
+  document.getElementById('boxPasswordWrap').style.display = (type === 'delivery') ? 'block' : 'none';
+  // フォーム全体の背景色を種類ごとに変え、スクロールしても色で常に判別できるようにする
+  const sheetEl = document.querySelector('#newOverlay .sheet');
+  sheetEl.classList.toggle('type-delivery', type === 'delivery');
+  sheetEl.classList.toggle('type-parking', type === 'parking');
+  // 今どちらの登録画面かを見出しでもはっきりさせる（編集時・紐づけ待ち時は専用の見出しを優先する）
+  if (!editingPointId && !pendingParkingLinkTargetId) {
+    document.getElementById('newSheetTitle').textContent = type === 'delivery' ? '📦 配達先を登録' : '🅿️ 停車位置を登録';
+  }
+}
+
+function populateParkingSelect(type){
+  const wrap = document.getElementById('linkedParkingWrap');
+  const select = document.getElementById('linkedParkingSelect');
+  if (type !== 'delivery') {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">選択しない</option>';
+  const base = pendingLatLng;
+  points
+    .filter(p => p.type === 'parking')
+    .map(p => ({ p, dist: base ? Math.round(distanceMeters(base.lat, base.lng, p.lat, p.lng)) : null }))
+    .sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0)) // 近い順に並べる＝近所で共有している停車位置を見つけやすくする
+    .forEach(({ p, dist }) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      const label = p.name ? p.name : `停車位置（${new Date(p.createdAt).toLocaleDateString('ja-JP')}登録）`;
+      opt.textContent = dist !== null ? `${label}（${dist}m）` : label;
+      select.appendChild(opt);
+    });
+  select.value = currentValue;
+}
+
+document.getElementById('parkHereInput').addEventListener('change', (e) => {
+  document.getElementById('parkingSelectWrap').style.display = e.target.checked ? 'none' : 'block';
+  if (e.target.checked) document.getElementById('linkedParkingSelect').value = '';
+});
+
+document.getElementById('boxPasswordInput').addEventListener('input', (e) => {
+  // 大文字/小文字の違いで「合っているのに一致しない」を防ぐため、常に小文字にそろえる
+  const pos = e.target.selectionStart;
+  e.target.value = e.target.value.toLowerCase();
+  e.target.setSelectionRange(pos, pos); // カーソル位置がずれないようにする
+});
+
+// ---------- 写真から住所・名前を読み取る（OCR。完全に端末内・無料で動くTesseract.jsを使用） ----------
+// 前回の調査結果に加えて、実際に試してもらって分かった問題点も反映:
+//  1. 'jpn+eng'ではなく'jpn'単独にする（日本語と英語を同時に読ませると混ざって文字化けしやすい）
+//  2. Tesseract.recognize()を毎回呼ぶと、その都度エンジン一式を作り直して遅いので、
+//     ワーカーを1回だけ作って使い回す
+//  3. 写真全体をそのまま(しかも拡大して)読ませると、画像が巨大になって遅く、
+//     関係ない背景の文字まで拾ってしまう。→ 住所・名前の部分だけを指で囲んでから、
+//     その狭い範囲だけを適切なサイズに整えて読ませる
+//  4. 「それらしい行が１つでもあれば無条件に名前とする」のをやめ、
+//     文字として不自然なものは名前欄に入れない
+
+let tesseractWorker = null;
+let tesseractWorkerLoading = null;
+function getTesseractWorker(){
+  if (tesseractWorker) return Promise.resolve(tesseractWorker);
+  if (tesseractWorkerLoading) return tesseractWorkerLoading;
+  tesseractWorkerLoading = (async () => {
+    await loadTesseractScript();
+    const worker = await Tesseract.createWorker('jpn'); // 日本語だけを読む（英語と混ぜない）
+    await worker.setParameters({ tessedit_pageseg_mode: '6' }); // 表札1枚のような単一のまとまりとして読む
+    tesseractWorker = worker;
+    return worker;
+  })();
+  return tesseractWorkerLoading;
+}
+function loadTesseractScript(){
+  if (window.Tesseract) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('読み取り機能の準備に失敗しました。電波の良い場所でもう一度試してください。'));
+    document.head.appendChild(script);
+  });
+}
+
+// 切り抜いた範囲を、文字を読み取りやすい適切なサイズ・白黒に整える。
+// 大きすぎる画像はかえって遅く・不正確になるため、目標サイズに近づける（拡大にも縮小にもする）。
+function preprocessForOcr(sourceCanvas){
+  // 自前の単純な二値化（明るさの平均で白黒に分ける）は、写真によっては
+  // 逆に文字を潰してしまい精度を下げることが分かったため取りやめた。
+  // Tesseract自身がより高度な二値化処理を内部で行うため、
+  // ここではグレースケール化とサイズ調整だけにとどめる。
+  const TARGET_WIDTH = 900;
+  const scale = TARGET_WIDTH / sourceCanvas.width;
+  const out = document.createElement('canvas');
+  out.width = Math.round(sourceCanvas.width * scale);
+  out.height = Math.round(sourceCanvas.height * scale);
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(sourceCanvas, 0, 0, out.width, out.height);
+
+  const imgData = ctx.getImageData(0, 0, out.width, out.height);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+    d[i] = d[i+1] = d[i+2] = gray;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return out;
+}
+
+// 読み取った文字を、住所らしい行と、それ以外（名前らしい行）に振り分ける。
+// 明らかに文字化けした行（日本語の文字がほとんど含まれない行）は、
+// 住所にも名前にも使わないよう除外する。
+function looksLikeGarbledText(line){
+  const meaningfulChars = (line.match(/[\u4E00-\u9FFF\u3040-\u30FF々〆ヶー]/g) || []).length;
+  return meaningfulChars < Math.max(1, line.length * 0.4); // 日本語らしい文字が4割未満なら文字化けとみなす
+}
+function splitNameAndAddress(rawText){
+  const normalize = s => s.normalize('NFKC').trim();
+  const lines = rawText.split(/\n+/).map(normalize).filter(Boolean).filter(l => !looksLikeGarbledText(l));
+
+  const PREFECTURES = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県',
+    '埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県',
+    '愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県',
+    '山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+
+  const isAddressLine = (line) => {
+    if (/〒?\s*\d{3}[-−ー－]?\d{4}/.test(line)) return true;
+    if (PREFECTURES.some(pref => line.includes(pref))) return true;
+    if (/[市区町村郡]/.test(line)) return true;
+    if (/\d+\s*丁目/.test(line) || /\d+\s*番地?/.test(line) || /\d+\s*号/.test(line)) return true;
+    if (/\d+[-−ー－]\d+([-−ー－]\d+)?/.test(line)) return true;
+    return false;
+  };
+
+  const addressLines = lines.filter(isAddressLine);
+  const otherLines = lines.filter(l => !isAddressLine(l));
+  // 名前らしい行＝数字を含まず、2〜10文字程度で、日本語の文字を含むもの。
+  // 条件に合う行が無ければ、無理に埋めずに空のままにする。
+  const nameLine = otherLines.find(l =>
+    !/\d/.test(l) && l.length >= 2 && l.length <= 10 && /[\u4E00-\u9FFF\u3040-\u30FF]/.test(l)
+  ) || '';
+
+  return { name: nameLine, address: addressLines.join('') };
+}
+
+// ---- カメラでのスキャン ----
+let ocrStream = null;
+async function openOcrScan(){
+  document.getElementById('ocrScanOverlay').classList.add('open');
+  document.getElementById('ocrScanStatus').textContent = '';
+  try {
+    ocrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    document.getElementById('ocrVideo').srcObject = ocrStream;
+  } catch (err) {
+    console.error('camera error:', err);
+    closeOcrScan();
+    document.getElementById('ocrPhotoInput').value = '';
+    document.getElementById('ocrPhotoInput').click(); // カメラが使えない場合は、代わりに写真選択にする
+    return;
+  }
+  // 使う可能性が高いので、この時点でワーカーの準備を裏で始めておく（実際に読み取る時を速くするため）
+  getTesseractWorker().catch(() => {});
+}
+function closeOcrScan(){
+  document.getElementById('ocrScanOverlay').classList.remove('open');
+  if (ocrStream) {
+    ocrStream.getTracks().forEach(t => t.stop());
+    ocrStream = null;
+  }
+}
+document.getElementById('ocrPhotoBtn').addEventListener('click', openOcrScan);
+document.getElementById('ocrScanCancelBtn').addEventListener('click', closeOcrScan);
+
+document.getElementById('ocrScanCaptureBtn').addEventListener('click', () => {
+  try {
+    const video = document.getElementById('ocrVideo');
+    if (!video.videoWidth || !video.videoHeight) {
+      document.getElementById('ocrScanStatus').textContent = 'カメラの準備中です。少し待ってから押してください。';
+      return;
+    }
+    const canvas = document.getElementById('ocrCanvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    closeOcrScan();
+    openOcrCrop(canvas);
+  } catch (err) {
+    console.error('OCR capture error:', err);
+    alert('撮影した写真の取り込みに失敗しました。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
+  }
+});
+
+// カメラが使えない端末向けの、写真を選ぶ形の代替経路
+document.getElementById('ocrPhotoInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    openOcrCrop(canvas);
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+// ---- 撮った写真から、範囲を指でなぞって選ぶ ----
+let ocrCaptureCanvas = null; // 撮影・選択された元画像（切り抜きの元になる）
+let ocrCropState = null; // ドラッグ中の座標を保持
+
+function openOcrCrop(sourceCanvas){
+  ocrCaptureCanvas = sourceCanvas;
+  const img = document.getElementById('ocrCropImage');
+  img.onerror = () => {
+    document.getElementById('ocrCropStatus').textContent = '写真の表示に失敗しました。もう一度撮り直してください。';
+  };
+  img.src = sourceCanvas.toDataURL('image/jpeg', 0.92);
+  document.getElementById('ocrCropRect').style.display = 'none';
+  document.getElementById('ocrCropStatus').textContent = '';
+  document.getElementById('ocrCropOverlay').classList.add('open');
+}
+function closeOcrCrop(){
+  document.getElementById('ocrCropOverlay').classList.remove('open');
+  ocrCaptureCanvas = null;
+}
+document.getElementById('ocrCropCancelBtn').addEventListener('click', closeOcrCrop);
+
+(function setupOcrCropDragging(){
+  const stage = document.getElementById('ocrCropStage');
+  const rectEl = document.getElementById('ocrCropRect');
+  let dragging = false;
+
+  function clientPointFromEvent(evt){
+    const src = (evt.touches && evt.touches[0]) ? evt.touches[0]
+      : (evt.changedTouches && evt.changedTouches[0]) ? evt.changedTouches[0] : evt;
+    const rect = stage.getBoundingClientRect();
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+  function updateRect(x1, y1, x2, y2){
+    const left = Math.max(0, Math.min(x1, x2));
+    const top = Math.max(0, Math.min(y1, y2));
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    rectEl.style.left = left + 'px';
+    rectEl.style.top = top + 'px';
+    rectEl.style.width = width + 'px';
+    rectEl.style.height = height + 'px';
+    rectEl.style.display = 'block';
+  }
+  function startDrag(evt){
+    evt.preventDefault();
+    dragging = true;
+    const p = clientPointFromEvent(evt);
+    ocrCropState = { startX: p.x, startY: p.y };
+    updateRect(p.x, p.y, p.x, p.y);
+  }
+  function moveDrag(evt){
+    if (!dragging || !ocrCropState) return;
+    evt.preventDefault();
+    const p = clientPointFromEvent(evt);
+    updateRect(ocrCropState.startX, ocrCropState.startY, p.x, p.y);
+  }
+  function endDrag(){
+    dragging = false; // ocrCropStateは確定ボタン時にも使うのでここでは消さない
+  }
+
+  stage.addEventListener('touchstart', startDrag, { passive:false });
+  stage.addEventListener('touchmove', moveDrag, { passive:false });
+  stage.addEventListener('touchend', endDrag);
+  stage.addEventListener('touchcancel', endDrag);
+  stage.addEventListener('mousedown', startDrag);
+  stage.addEventListener('mousemove', moveDrag);
+  stage.addEventListener('mouseup', endDrag);
+})();
+
+document.getElementById('ocrCropConfirmBtn').addEventListener('click', async () => {
+  try {
+    const rectEl = document.getElementById('ocrCropRect');
+    const stage = document.getElementById('ocrCropStage');
+    if (rectEl.style.display === 'none' || !ocrCaptureCanvas) {
+      document.getElementById('ocrCropStatus').textContent = '先に範囲を指でなぞって囲んでください。';
+      return;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    if (!stageRect.width || !stageRect.height) {
+      document.getElementById('ocrCropStatus').textContent = '画面の準備がまだ整っていません。もう一度囲み直してください。';
+      return;
+    }
+    // 土台と写真の縦横比が違うと、写真は中央に余白付き(レターボックス)で表示される。
+    // その余白ぶんを差し引いてから、実際の写真上の座標に変換する必要がある。
+    const stageRatio = stageRect.width / stageRect.height;
+    const imgRatio = ocrCaptureCanvas.width / ocrCaptureCanvas.height;
+    let renderW, renderH, offsetX, offsetY;
+    if (imgRatio > stageRatio) {
+      renderW = stageRect.width;
+      renderH = stageRect.width / imgRatio;
+      offsetX = 0;
+      offsetY = (stageRect.height - renderH) / 2;
+    } else {
+      renderH = stageRect.height;
+      renderW = stageRect.height * imgRatio;
+      offsetY = 0;
+      offsetX = (stageRect.width - renderW) / 2;
+    }
+    const scaleX = ocrCaptureCanvas.width / renderW;
+    const scaleY = ocrCaptureCanvas.height / renderH;
+    let cropX = (parseFloat(rectEl.style.left) - offsetX) * scaleX;
+    let cropY = (parseFloat(rectEl.style.top) - offsetY) * scaleY;
+    let cropW = parseFloat(rectEl.style.width) * scaleX;
+    let cropH = parseFloat(rectEl.style.height) * scaleY;
+    // 余白部分にまではみ出して囲んでいた場合、写真の範囲内に収まるよう調整する
+    cropX = Math.max(0, cropX);
+    cropY = Math.max(0, cropY);
+    cropW = Math.min(cropW, ocrCaptureCanvas.width - cropX);
+    cropH = Math.min(cropH, ocrCaptureCanvas.height - cropY);
+    // 計算結果が数値としておかしい場合（0・NaN・無限大など）は、そのまま進めるとエラーで
+    // 無言で止まってしまうため、ここで確実に検知してメッセージを出す
+    if (![cropX, cropY, cropW, cropH].every(Number.isFinite) || cropW < 10 || cropH < 10) {
+      document.getElementById('ocrCropStatus').textContent = '範囲をうまく認識できませんでした。もう一度、指でなぞって囲んでください。';
+      return;
+    }
+
+    const cropped = document.createElement('canvas');
+    cropped.width = Math.round(cropW);
+    cropped.height = Math.round(cropH);
+    cropped.getContext('2d').drawImage(ocrCaptureCanvas, cropX, cropY, cropW, cropH, 0, 0, cropped.width, cropped.height);
+
+    closeOcrCrop();
+    await runOcrOnCanvas(cropped);
+  } catch (err) {
+    // 何が起きても「無反応」にはせず、必ず目に見える形でエラーを伝える
+    console.error('OCR crop confirm error:', err);
+    document.getElementById('ocrProcessingOverlay').classList.remove('open');
+    alert('読み取り処理でエラーが発生しました。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
+  }
+});
+
+async function runOcrOnCanvas(sourceCanvas){
+  const box = document.getElementById('ocrResultBox');
+  const statusEl = document.getElementById('ocrStatusText');
+  const splitRow = document.getElementById('ocrSplitRow');
+  const processingOverlay = document.getElementById('ocrProcessingOverlay');
+  const processingText = document.getElementById('ocrProcessingText');
+
+  box.style.display = 'block';
+  splitRow.style.display = 'none';
+  statusEl.textContent = '';
+  // 処理中は画面のどこにいても分かるよう、全画面で表示する
+  processingOverlay.classList.add('open');
+  processingText.textContent = '準備中…（初回だけ少し時間がかかります）';
+
+  try {
+    const worker = await getTesseractWorker();
+    processingText.textContent = '文字を読み取っています…';
+    const processed = preprocessForOcr(sourceCanvas);
+    const { data } = await worker.recognize(processed);
+    const recognized = (data.text || '').trim();
+    document.getElementById('ocrResultText').value = recognized;
+    const guess = splitNameAndAddress(recognized);
+    if (guess.name || guess.address) {
+      document.getElementById('ocrGuessName').value = guess.name;
+      document.getElementById('ocrGuessAddress').value = guess.address;
+      splitRow.style.display = 'block';
+      statusEl.textContent = '読み取れました。内容が違う場合は直接書き直してください。';
+    } else {
+      statusEl.textContent = '住所・名前らしい文字を読み取れませんでした。囲む範囲を変えて、もう一度試してください。';
+    }
+  } catch (err) {
+    console.error('OCR error:', err);
+    statusEl.textContent = (err && err.message) ? err.message : '読み取りに失敗しました。';
+  } finally {
+    processingOverlay.classList.remove('open');
+    // 結果はフォームの下の方にあり見落としやすいため、確実に見える位置までスクロールする
+    try { box.scrollIntoView({ behavior:'smooth', block:'center' }); } catch (e) { /* スクロールに失敗しても致命的ではないので無視する */ }
+  }
+}
+
+document.getElementById('ocrApplyBothBtn').addEventListener('click', () => {
+  const name = document.getElementById('ocrGuessName').value.trim();
+  const address = document.getElementById('ocrGuessAddress').value.trim();
+  if (name) document.getElementById('nameInput').value = name;
+  if (address) document.getElementById('addressInput').value = address;
+  const btn = document.getElementById('ocrApplyBothBtn');
+  const original = btn.textContent;
+  btn.textContent = '✓ 反映しました';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+});
+
+document.getElementById('photoInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const resized = await resizeImageToDataUrl(file);
+  pendingPhotos.push(resized); // 置き換えず、追加する
+  renderPhotoPreviewList();
+  e.target.value = ''; // 同じ写真をもう一度選んでも追加できるように、選択状態をリセットする
+});
+
+document.getElementById('cancelNewBtn').addEventListener('click', () => {
+  editingPointId = null;
+  pendingParkingLinkTargetId = null;
+  document.getElementById('newOverlay').classList.remove('open');
+});
+
+document.getElementById('saveNewBtn').addEventListener('click', async () => {
+  if (!pendingType) {
+    alert('「配達先」か「停車位置」のどちらかを選んでください');
+    return;
+  }
+
+  let savedPointForOutline = null; // 保存後、建物の輪郭取得を試みる対象
+
+  if (editingPointId) {
+    // 既存の地点を編集する場合：場所(lat/lng)と登録日時はそのまま、内容だけ書き換える
+    const p = points.find(pt => pt.id === editingPointId);
+    if (p) {
+      p.type = pendingType;
+      p.updatedAt = Date.now();
+      p.name = document.getElementById('nameInput').value.trim();
+      p.address = document.getElementById('addressInput').value.trim();
+      p.memo = document.getElementById('memoInput').value.trim();
+      p.tags = sortTagsByGroup(pendingTags);
+      p.boxPassword = document.getElementById('boxPasswordInput').value.trim();
+      p.photos = pendingPhotos.slice();
+      p.attention = document.getElementById('attnInput').checked;
+      p.parkHere = (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false;
+      p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
+      savedPointForOutline = p;
+    }
+  } else {
+    // 新しい地点を登録する場合
+    deselectActiveDrawing(); // 新しい地点が追加されたので、直前に選択していた線は編集対象から外す
+    const point = {
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+      lat: pendingLatLng.lat,
+      lng: pendingLatLng.lng,
+      type: pendingType,
+      status: 'pending',
+      name: document.getElementById('nameInput').value.trim(),
+      address: document.getElementById('addressInput').value.trim(),
+      memo: document.getElementById('memoInput').value.trim(),
+      tags: sortTagsByGroup(pendingTags),
+      boxPassword: document.getElementById('boxPasswordInput').value.trim(),
+      photos: pendingPhotos.slice(),
+      attention: document.getElementById('attnInput').checked,
+      parkHere: (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false,
+      parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
+        ? (document.getElementById('linkedParkingSelect').value || null) : null,
+      createdAt: Date.now(),
+            updatedAt: Date.now(),
+            createdBy: currentUserName
+    };
+    points.push(point);
+    actionHistory.push({ type:'point', id:point.id });
+    savedPointForOutline = point;
+
+    // 「停車位置を新しく登録してここに紐づける」からの流れなら、自動でリンクする
+    if (pendingParkingLinkTargetId && pendingType === 'parking') {
+      const target = points.find(pt => pt.id === pendingParkingLinkTargetId);
+      if (target) {
+        target.parkingPointId = point.id;
+        target.parkHere = false;
+      }
+    }
+  }
+
+  const justLinkedTargetId = pendingParkingLinkTargetId;
+  pendingParkingLinkTargetId = null;
+
+  renderAllMarkers(); // 種類や写真が変わるとピンの見た目も変わるため、全体を描き直す
+  await savePoints();
+  document.getElementById('newOverlay').classList.remove('open');
+
+  // 名前が入っていれば、裏で建物の輪郭取得を試みる（時間がかかるので画面は先に閉じてよい）
+  if (savedPointForOutline && savedPointForOutline.name) {
+    tryAttachBuildingOutline(savedPointForOutline);
+  }
+
+  if (justLinkedTargetId) {
+    setMode('view');
+    setTimeout(() => openDetailSheet(justLinkedTargetId), 200); // 元の配達先の詳細に戻り、紐づいたことを確認できるようにする
+  }
+});
+
+// ---------- 新しく描いた線が、紐づけ待ちの配達先の「経路」になるかを判定する ----------
+async function handleNewDrawingCreated(d){
+  if (pendingRouteLinkTargetId) {
+    const target = points.find(pt => pt.id === pendingRouteLinkTargetId);
+    if (target) {
+      target.routeDrawingId = d.id;
+      await savePoints();
+    }
+    const targetId = pendingRouteLinkTargetId;
+    pendingRouteLinkTargetId = null;
+    setMode('view');
+    setTimeout(() => openDetailSheet(targetId), 200); // 元の配達先の詳細に戻り、紐づいたことを確認できるようにする
+  } else {
+    openDrawingEditSheet(d.id);
+  }
+}
+
+// 紐づけた経路を、地図上で一時的に太く光らせて分かりやすく見せる
+let routeHighlightLayer = null;
+function clearRouteHighlight(){
+  if (routeHighlightLayer) {
+    map.removeLayer(routeHighlightLayer);
+    routeHighlightLayer = null;
+  }
+}
+function showRouteOnMap(d){
+  document.getElementById('detailOverlay').classList.remove('open');
+  clearRouteHighlight();
+  const latlngs = d.points;
+  routeHighlightLayer = L.polyline(latlngs, {
+    color: d.color, weight: (d.weight || 3) + 5, opacity:0.45, lineCap:'round', lineJoin:'round'
+  }).addTo(map);
+  map.fitBounds(L.latLngBounds(latlngs), { padding:[70,70], maxZoom:19 });
+  setTimeout(() => clearRouteHighlight(), 8000);
+}
+
+
+// ナビや経路計算はせず、今ある2つのピンを地図上で一緒に表示し、線で結ぶだけ。
+// 距離の数字だけでは分からない「間に建物や川があるか」などを目で確認できるようにする。
+function clearParkingRelationLayer(){
+  if (parkingRelationLayer) {
+    map.removeLayer(parkingRelationLayer);
+    parkingRelationLayer = null;
+  }
+}
+function showParkingRelationOnMap(parkingPoint, deliveryPoint){
+  document.getElementById('detailOverlay').classList.remove('open');
+  clearParkingRelationLayer();
+  clearRouteHighlight();
+
+  parkingRelationLayer = L.layerGroup().addTo(map);
+  L.polyline(
+    [[parkingPoint.lat, parkingPoint.lng], [deliveryPoint.lat, deliveryPoint.lng]],
+    { color:'#4FA0D6', weight:3, opacity:0.8, dashArray:'6,6' }
+  ).addTo(parkingRelationLayer);
+  // 停車位置側だけ目立つ輪を付けて、どちらがどちらか分かりやすくする（配達先は元のピンで既に分かるため）
+  L.circleMarker([parkingPoint.lat, parkingPoint.lng], {
+    radius:14, color:'#4FA0D6', weight:3, fill:false
+  }).addTo(parkingRelationLayer);
+
+  const bounds = L.latLngBounds(
+    [parkingPoint.lat, parkingPoint.lng],
+    [deliveryPoint.lat, deliveryPoint.lng]
+  );
+  map.fitBounds(bounds, { padding:[70,70], maxZoom:19 });
+
+  // しばらくしたら自動で消す（描画や別のピン確認の邪魔にならないように）
+  setTimeout(() => clearParkingRelationLayer(), 8000);
+}
+
+
+// ---------- 建物の輪郭を取得する（OpenStreetMapの建物データ。無料・登録不要） ----------
+// ゼンリンのような「建物1軒ごとに名前」を、無料の代わりの方法で近づける試み。
+// このアプリ自体は地図を"ただの画像"としてしか持っていないため、
+// 「ここが1軒の建物」というデータをOSMに毎回問い合わせて借りてくる。
+// 見つからない場合（田舎・新しい住宅地など）は、呼び出し側でピン表示に戻す。
+function isPointInPolygon(lat, lng, poly){
+  // 点が多角形の中にあるかどうかの判定（Ray casting法）
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i];
+    const [yj, xj] = poly[j];
+    const intersect = ((yi > lat) !== (yj > lat)) &&
+      (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+async function fetchBuildingOutline(lat, lng){
+  const query = `[out:json][timeout:15];way(around:25,${lat},${lng})["building"];out geom;`;
+  const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('取得に失敗しました');
+    const data = await res.json();
+    const ways = (data.elements || []).filter(el => el.geometry && el.geometry.length >= 3);
+    if (ways.length === 0) return null;
+
+    const polygons = ways.map(w => w.geometry.map(pt => [pt.lat, pt.lon]));
+    // ピンを置いた場所を実際に囲んでいる建物を優先する
+    const containing = polygons.find(poly => isPointInPolygon(lat, lng, poly));
+    if (containing) return containing;
+    // 囲んでいるものが無ければ、一番近い建物を使う（ピンが軒先や境界付近にある場合など）
+    let nearest = null, nearestDist = Infinity;
+    polygons.forEach(poly => {
+      const cLat = poly.reduce((s,p) => s+p[0], 0) / poly.length;
+      const cLng = poly.reduce((s,p) => s+p[1], 0) / poly.length;
+      const d = distanceMeters(lat, lng, cLat, cLng);
+      if (d < nearestDist) { nearestDist = d; nearest = poly; }
+    });
+    return nearest;
+  } catch (e) {
+    console.error('建物の輪郭取得に失敗:', e);
+    return null;
+  }
+}
+
+function polygonCentroid(poly){
+  const lat = poly.reduce((s,p) => s+p[0], 0) / poly.length;
+  const lng = poly.reduce((s,p) => s+p[1], 0) / poly.length;
+  return [lat, lng];
+}
+
+// 建物の輪郭が取得できている場合、その形を薄く描き、中央に名前を表示する
+function renderBuildingOutlineForPoint(p){
+  const color = p.type === 'delivery' ? '#E8862E' : '#4FA0D6';
+  L.polygon(p.buildingOutline, {
+    color: color, weight:2, fillColor: color, fillOpacity:0.15, interactive:false
+  }).addTo(buildingOutlineLayer);
+  if (p.name) {
+    const centroid = polygonCentroid(p.buildingOutline);
+    const icon = L.divIcon({
+      className:'',
+      html: `<div class="building-name-label">${escapeHtml(p.name)}</div>`,
+      iconSize:[0,0]
+    });
+    L.marker(centroid, { icon, interactive:false }).addTo(buildingOutlineLayer);
+  }
+}
+
+// 地点を登録・編集した際に、裏で建物の輪郭を取得して保存しておく（一度取れれば使い回す）
+async function tryAttachBuildingOutline(p){
+  if (p.buildingOutline || p.buildingOutlineChecked) return; // 取得済み・確認済みなら何もしない
+  const outline = await fetchBuildingOutline(p.lat, p.lng);
+  p.buildingOutline = outline || null;
+  p.buildingOutlineChecked = true;
+  await savePoints();
+  renderAllMarkers();
+}
+
+// ---------- 距離・方角の計算（簡易版。ナビ機能ではなく「だいたいの位置関係」の目安） ----------
+function distanceMeters(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function compassDirection(lat1, lng1, lat2, lng2){
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  const brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  const dirs = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
+  return dirs[Math.round(brng / 45) % 8];
+}
+
+// ---------- 詳細シート ----------
+function updateStatusButtonsUI(status){
+  document.querySelectorAll('.status-btn').forEach(btn => {
+    btn.classList.toggle('btn-primary', btn.dataset.status === status);
+    btn.classList.toggle('btn-secondary', btn.dataset.status !== status);
+  });
+  document.getElementById('redeliveryRow').style.display = (status === 'absent') ? 'block' : 'none';
+}
+
+function setPointStatus(status){
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (!p) return;
+  p.status = status;
+  if (status !== 'absent') delete p.redeliveryDate;
+  p.updatedAt = Date.now();
+  updateStatusButtonsUI(status);
+  savePoints();
+  renderAllMarkers();
+}
+
+document.querySelectorAll('.status-btn').forEach(btn => {
+  btn.addEventListener('click', () => setPointStatus(btn.dataset.status));
+});
+document.getElementById('redeliveryDateInput').addEventListener('change', (e) => {
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (!p) return;
+  p.redeliveryDate = e.target.value;
+  savePoints();
+  renderAllMarkers();
+});
+
+function openDetailSheet(id){
+  const p = points.find(pt => pt.id === id);
+  if (!p) return;
+  selectedPointId = id;
+  clearParkingRelationLayer();
+  clearRouteHighlight();
+
+  const typeLabel = p.type === 'delivery' ? '配達先' : '停車位置';
+  const typeClass = p.type === 'delivery' ? 'delivery' : 'parking';
+  document.getElementById('detailTypeWrap').innerHTML = `
+    <span class="detail-type ${typeClass}">${typeLabel}</span>
+    ${p.attention ? '<span class="detail-warn">⚠️ 注意地点</span>' : ''}
+  `;
+
+  updateStatusButtonsUI(p.status || 'pending');
+  document.getElementById('redeliveryDateInput').value = p.redeliveryDate || '';
+
+  document.getElementById('detailName').textContent = p.name || '（名前未登録）';
+  const retryBtn = document.getElementById('retryBuildingOutlineBtn');
+  retryBtn.style.display = p.name ? 'inline-block' : 'none';
+  retryBtn.textContent = p.buildingOutline ? '🏠 建物の形を取得し直す' : '🏠 建物の形を取得する';
+  retryBtn.onclick = async () => {
+    retryBtn.textContent = '取得中…';
+    p.buildingOutline = null;
+    p.buildingOutlineChecked = false;
+    await tryAttachBuildingOutline(p);
+    document.getElementById('detailOverlay').classList.remove('open'); // 再描画されるので詳細は開き直してもらう
+  };
+
+  const addressRow = document.getElementById('detailAddressRow');
+  if (p.address) {
+    document.getElementById('detailAddress').textContent = p.address;
+    addressRow.style.display = 'flex';
+  } else {
+    addressRow.style.display = 'none';
+  }
+
+  const parkingRow = document.getElementById('detailParkingRow');
+  const addParkingBtn = document.getElementById('addParkingLinkBtn');
+  const relationBtn = document.getElementById('showParkingRelationBtn');
+  const linkedParking = p.parkingPointId ? points.find(pt => pt.id === p.parkingPointId) : null;
+  const parkingSecondaryBtn = document.getElementById('parkingSecondaryBtn');
+  const routeOptionsRow = document.getElementById('routeLinkOptionsRow');
+  const linkedRoute = p.routeDrawingId ? drawings.find(d => d.id === p.routeDrawingId) : null;
+
+  if (p.type !== 'delivery') {
+    parkingRow.style.display = 'none';
+    addParkingBtn.style.display = 'none';
+    routeOptionsRow.style.display = 'none';
+  } else if (p.parkHere) {
+    document.getElementById('detailParkingName').textContent = '配達先と同じ場所';
+    document.getElementById('detailParkingSub').textContent = '（別途、停車位置の登録は不要です）';
+    parkingRow.style.display = 'flex';
+    relationBtn.style.display = 'none';
+    parkingSecondaryBtn.style.display = 'none';
+    addParkingBtn.style.display = 'none';
+    routeOptionsRow.style.display = 'none';
+  } else if (linkedParking) {
+    document.getElementById('detailParkingName').textContent =
+      linkedParking.name || `停車位置（${new Date(linkedParking.createdAt).toLocaleDateString('ja-JP')}登録）`;
+
+    // 直線距離／経路：経路（手描きの線）が紐づいていればそちらを優先して案内し、
+    // 無ければ直線距離・方角だけを表示する
+    const dist = Math.round(distanceMeters(linkedParking.lat, linkedParking.lng, p.lat, p.lng));
+    const dir = compassDirection(linkedParking.lat, linkedParking.lng, p.lat, p.lng);
+    document.getElementById('detailParkingSub').textContent = linkedRoute
+      ? `経路：手描きの線あり（直線距離は${dir}へ約${dist}m）`
+      : `直線距離：${dir}へ約${dist}m`;
+
+    parkingRow.style.display = 'flex';
+    addParkingBtn.style.display = 'none';
+
+    // 「見る」：経路があればそれを、無ければ停車位置との直線を地図で見せる
+    relationBtn.style.display = 'block';
+    relationBtn.onclick = linkedRoute
+      ? () => showRouteOnMap(linkedRoute)
+      : () => showParkingRelationOnMap(linkedParking, p);
+
+    // 右下のボタン：経路がある時は「紐づけ解除」、無い時は経路を追加する入口
+    parkingSecondaryBtn.style.display = 'block';
+    if (linkedRoute) {
+      parkingSecondaryBtn.textContent = '紐づけ解除';
+      parkingSecondaryBtn.onclick = () => {
+        p.routeDrawingId = null;
+        savePoints();
+        openDetailSheet(p.id);
+      };
+      routeOptionsRow.style.display = 'none';
+    } else {
+      parkingSecondaryBtn.textContent = '＋経路を追加';
+      parkingSecondaryBtn.onclick = () => {
+        routeOptionsRow.style.display = (routeOptionsRow.style.display === 'none') ? 'block' : 'none';
+      };
+      routeOptionsRow.style.display = 'none'; // 押すまでは畳んでおく
+      const select = document.getElementById('existingRouteSelect');
+      select.innerHTML = '<option value="">既存の線から選ぶ</option>';
+      drawings.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.style === 'free' ? '手書き' : '直線'}の線（${new Date(d.createdAt).toLocaleDateString('ja-JP')}）`;
+        select.appendChild(opt);
+      });
+      select.value = '';
+      select.onchange = () => {
+        if (!select.value) return;
+        p.routeDrawingId = select.value;
+        savePoints();
+        openDetailSheet(p.id);
+      };
+      document.getElementById('drawNewRouteBtn').onclick = () => {
+        pendingRouteLinkTargetId = p.id;
+        document.getElementById('detailOverlay').classList.remove('open');
+        setMode('draw');
+        alert('地図に経路を描いてください。描き終えると自動でこの配達先に紐づきます。');
+      };
+    }
+  } else {
+    parkingRow.style.display = 'none';
+    addParkingBtn.style.display = 'block';
+    routeOptionsRow.style.display = 'none';
+  }
+
+  const photosEl = document.getElementById('detailPhotos');
+  photosEl.innerHTML = '';
+  (p.photos || []).forEach(photo => {
+    const img = document.createElement('img');
+    img.src = photo;
+    photosEl.appendChild(img);
+  });
+
+  const boxRow = document.getElementById('detailBoxPasswordRow');
+  if (p.boxPassword) {
+    document.getElementById('detailBoxPassword').textContent = p.boxPassword;
+    boxRow.style.display = 'flex';
+  } else {
+    boxRow.style.display = 'none';
+  }
+
+  const tagsRow = document.getElementById('detailTagsRow');
+  const tagsEl = document.getElementById('detailTags');
+  if (p.tags && p.tags.length > 0) {
+    tagsEl.innerHTML = '';
+    sortTagsByGroup(p.tags).forEach(tagId => {
+      const chip = document.createElement('span');
+      chip.className = 'note-tag-chip';
+      chip.textContent = noteTagLabel(tagId);
+      tagsEl.appendChild(chip);
+    });
+    tagsRow.style.display = 'flex';
+  } else {
+    tagsRow.style.display = 'none';
+  }
+
+  const memoRow = document.getElementById('detailMemoRow');
+  const memoEl = document.getElementById('detailMemo');
+  if (p.memo) {
+    memoEl.textContent = p.memo;
+    memoRow.style.display = 'flex';
+  } else {
+    memoRow.style.display = 'none';
+  }
+
+  document.getElementById('detailTime').textContent =
+    '登録日時：' + new Date(p.createdAt).toLocaleString('ja-JP') + '（登録者：' + (p.createdBy || '不明') + '）';
+
+  document.getElementById('detailOverlay').classList.add('open');
+}
+
+// ---------- コピー機能（貼り付けは誤操作防止のため用意しない。コピーのみ） ----------
+async function copyTextWithFeedback(text, btn){
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    // クリップボードAPIが使えない環境向けのフォールバック
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e2) { /* 何もできない場合は諦める */ }
+    document.body.removeChild(ta);
+  }
+  const original = btn.textContent;
+  btn.textContent = '✓ コピーしました';
+  btn.classList.add('copied');
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove('copied');
+  }, 1500);
+}
+document.getElementById('copyAddressBtn').addEventListener('click', (e) => {
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (p) copyTextWithFeedback(p.address, e.target);
+});
+document.getElementById('copyBoxPasswordBtn').addEventListener('click', (e) => {
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (p) copyTextWithFeedback(p.boxPassword, e.target);
+});
+
+document.getElementById('addParkingLinkBtn').addEventListener('click', () => {
+  pendingParkingLinkTargetId = selectedPointId;
+  document.getElementById('detailOverlay').classList.remove('open');
+  setMode('point');
+  alert('地図をタップして、停車位置を登録してください。自動でこの配達先に紐づきます。');
+});
+
+document.getElementById('editBtn').addEventListener('click', () => {
+  document.getElementById('detailOverlay').classList.remove('open');
+  openEditSheet(selectedPointId);
+});
+
+document.getElementById('closeDetailBtn').addEventListener('click', () => {
+  document.getElementById('detailOverlay').classList.remove('open');
+});
+
+document.getElementById('deleteBtn').addEventListener('click', () => {
+  showDeleteConfirm('削除すると一覧から消えます。ゴミ箱から' + TRASH_RETENTION_DAYS + '日以内なら元に戻せます。', async () => {
+    const p = points.find(pt => pt.id === selectedPointId);
+    if (p) await moveToTrash('point', p);
+    points = points.filter(pt => pt.id !== selectedPointId);
+    renderAllMarkers();
+    await savePoints();
+    document.getElementById('detailOverlay').classList.remove('open');
+  });
+});
+
+// ---------- 画像を軽くする ----------
+function resizeImageToDataUrl(file, maxWidth = 900, quality = 0.6){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- モード切り替え（地点登録／手書き／スタンプ） ----------
+// 描画中、地図の上に乗っているメニュー類が邪魔でその場所に描けない、という問題への対策。
+// 一時的にメニューをすべて隠し、ズームボタンのすぐ下に小さなボタンだけ残して、
+// 隠した後も同じ場所からいつでも指で押して元に戻せるようにする。
+function setUiHidden(hidden){
+  document.body.classList.toggle('ui-hidden', hidden);
+  document.getElementById('uiHideToggleBtn').textContent = hidden ? '▸ 表示' : '▾ 隠す';
+}
+function positionUiHideHandle(){
+  const btn = document.getElementById('uiHideToggleBtn');
+  const zoomBar = document.getElementById('zoomBar');
+  if (!zoomBar) return;
+  const rect = zoomBar.getBoundingClientRect();
+  btn.style.top = (rect.bottom + 6) + 'px';
+  btn.style.left = rect.left + 'px';
+  btn.style.width = rect.width + 'px';
+  btn.style.right = '';
+  btn.style.bottom = '';
+}
+document.getElementById('uiHideToggleBtn').addEventListener('click', () => {
+  setUiHidden(!document.body.classList.contains('ui-hidden'));
+});
+
+function setMode(mode){
+  // モードを切り替える前に、描きかけの直線があれば片付けておく
+  cancelStraightLine();
+  clearParkingRelationLayer();
+  clearRouteHighlight();
+
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  document.getElementById('drawBar').style.display = (mode === 'draw') ? 'flex' : 'none';
+  document.getElementById('stampBar').style.display = (mode === 'stamp') ? 'flex' : 'none';
+  document.getElementById('uiHideToggleBtn').style.display = (mode === 'draw') ? 'block' : 'none';
+  if (mode !== 'draw') setUiHidden(false); // 描画モードを抜けたら、隠していたメニューを必ず元に戻す
+
+  // 「修整」モードのときだけ、スタンプ・地点を指でドラッグして動かせるようにする
+  refreshStampDraggable();
+  refreshPointsDraggable();
+
+  // 描画モード中は、選んでいるスタイルに応じて地図の動かし方を切り替える
+  // （「移動」を選んでいるときだけ、指1本で地図を動かせるようにする）
+  if (mode === 'draw') {
+    if (drawStyle === 'pan') {
+      map.dragging.enable();
+      map.getContainer().style.touchAction = '';
+    } else {
+      map.dragging.disable();
+      map.getContainer().style.touchAction = 'none';
+    }
+  } else {
+    map.dragging.enable();
+    map.getContainer().style.touchAction = '';
+  }
+}
+
+function setDrawStyle(style){
+  cancelStraightLine();
+  drawStyle = style;
+  document.getElementById('stylePanBtn').classList.toggle('selected', style === 'pan');
+  document.getElementById('styleFreeBtn').classList.toggle('selected', style === 'free');
+  document.getElementById('styleStraightBtn').classList.toggle('selected', style === 'straight');
+  const hints = {
+    pan: '指で地図を動かせます（描画はできません）',
+    free: '指でなぞって描けます',
+    straight: '地図をタップして点を追加。続けてタップでつなげます（終わったら「決定」）'
+  };
+  document.getElementById('drawHintRow').textContent = hints[style];
+
+  // 「移動」を選んでいる間だけ、指1本での地図の移動を許可する
+  if (currentMode === 'draw') {
+    if (style === 'pan') {
+      map.dragging.enable();
+      map.getContainer().style.touchAction = '';
+    } else {
+      map.dragging.disable();
+      map.getContainer().style.touchAction = 'none';
+    }
+  }
+}
+
+// ---------- 直線でつなぐ／矢印モード（タップした点をどこまでもつないでいける） ----------
+function addStraightVertex(latlng){
+  if (!straightLineInProgress) {
+    deselectActiveDrawing(); // 新しい直線が始まったので、直前に選択していた線は編集対象から外す
+    // 1回目のタップ＝始点。取消できるように待機する
+    const previewLine = L.polyline([latlng], {
+      color: currentDrawColor, weight: currentLineWeight, opacity:0.85, lineCap:'round', lineJoin:'round', dashArray:'6,4'
+    }).addTo(map);
+    straightLineInProgress = { points: [latlng], previewLine };
+    document.getElementById('straightActionsRow').style.display = 'flex';
+  } else {
+    // 2回目以降のタップ＝次の点。続けてタップするだけ線をつなげていける。
+    // 終わりたいときは「決定」ボタンを押す。
+    straightLineInProgress.points.push(latlng);
+    straightLineInProgress.previewLine.setLatLngs(straightLineInProgress.points);
+  }
+}
+
+async function finishStraightLine(){
+  if (!straightLineInProgress || straightLineInProgress.points.length < 2) return;
+  const points = straightLineInProgress.points;
+  map.removeLayer(straightLineInProgress.previewLine);
+  const d = {
+    id: 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    color: currentDrawColor,
+    weight: currentLineWeight,
+    style: drawStyle,
+    arrow: arrowEnabled,
+    points: points.map(p => [p.lat, p.lng]),
+    createdAt: Date.now(),
+            updatedAt: Date.now(),
+            createdBy: currentUserName
+  };
+  drawings.push(d);
+  actionHistory.push({ type:'drawing', id:d.id });
+  addDrawingToMap(d);
+  await saveDrawings();
+  straightLineInProgress = null;
+  document.getElementById('straightActionsRow').style.display = 'none';
+
+  // モード自体は切り替えず、描いたこの線だけを「アクティブ」にする。
+  // それ以外の場所は引き続き描画操作ができる。
+  await handleNewDrawingCreated(d);
+}
+
+function cancelStraightLine(){
+  if (straightLineInProgress) {
+    map.removeLayer(straightLineInProgress.previewLine);
+    straightLineInProgress = null;
+  }
+  const row = document.getElementById('straightActionsRow');
+  if (row) row.style.display = 'none';
+}
+
+function buildStampBar(){
+  const bar = document.getElementById('stampBar');
+  bar.innerHTML = '';
+  Object.keys(STAMP_TYPES).forEach(key => {
+    const t = STAMP_TYPES[key];
+    const el = document.createElement('div');
+    el.className = 'stamp-pick' + (key === currentStampType ? ' selected' : '');
+    el.dataset.type = key;
+    el.innerHTML = `<div class="icon">${t.emoji}</div><div class="label">${t.label}</div>`;
+    el.addEventListener('click', () => {
+      currentStampType = key;
+      document.querySelectorAll('.stamp-pick').forEach(p => p.classList.remove('selected'));
+      el.classList.add('selected');
+    });
+    bar.appendChild(el);
+  });
+}
+
+// ---------- 手書き線：保存・読み込み・描画 ----------
+async function loadDrawings(){
+  try {
+    const raw = localStorage.getItem(DRAWINGS_KEY);
+    drawings = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    drawings = [];
+  }
+}
+async function saveDrawings(){
+  try {
+    localStorage.setItem(DRAWINGS_KEY, JSON.stringify(drawings));
+  } catch (e) {
+    console.error('手書きデータの保存に失敗', e);
+    alert('線の保存に失敗しました。');
+  }
+}
+function renderAllDrawings(){
+  drawingsLayer.clearLayers();
+  drawingLayerRefs = {};
+  drawings.forEach(d => addDrawingToMap(d));
+}
+let drawingLayerRefs = {}; // id -> { visibleLine, hitLine, arrowMarker }
+
+// なぞった線の形はそのままに、点の数だけ間引く（Douglas-Peucker法の簡易版）
+function simplifyPoints(pts, tolerance){
+  if (pts.length <= 2) return pts;
+  function perpDist(pt, a, b){
+    const dx = b.lat - a.lat, dy = b.lng - a.lng;
+    if (dx === 0 && dy === 0) return Math.hypot(pt.lat - a.lat, pt.lng - a.lng);
+    const t = ((pt.lat - a.lat) * dx + (pt.lng - a.lng) * dy) / (dx*dx + dy*dy);
+    const projLat = a.lat + t * dx, projLng = a.lng + t * dy;
+    return Math.hypot(pt.lat - projLat, pt.lng - projLng);
+  }
+  function dp(points, eps){
+    if (points.length < 3) return points;
+    let maxDist = 0, index = 0;
+    for (let i = 1; i < points.length - 1; i++){
+      const d = perpDist(points[i], points[0], points[points.length - 1]);
+      if (d > maxDist) { maxDist = d; index = i; }
+    }
+    if (maxDist > eps){
+      const left = dp(points.slice(0, index + 1), eps);
+      const right = dp(points.slice(index), eps);
+      return left.slice(0, -1).concat(right);
+    }
+    return [points[0], points[points.length - 1]];
+  }
+  return dp(pts, tolerance);
+}
+
+function bearingDeg(p1, p2){
+  const lat1 = p1.lat * Math.PI/180, lat2 = p2.lat * Math.PI/180;
+  const dLon = (p2.lng - p1.lng) * Math.PI/180;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * 180/Math.PI + 360) % 360;
+}
+
+function addDrawingToMap(d){
+  const weight = d.weight || 3;
+  // 見た目用の線（実際の太さで表示）
+  const visibleLine = L.polyline(d.points, {
+    color:d.color, weight:weight, opacity:0.85, lineCap:'round', lineJoin:'round', interactive:false
+  }).addTo(drawingsLayer);
+  // タップ判定用の線（見た目より太くして、拡大率に関わらず選びやすくする）
+  const hitLine = L.polyline(d.points, {
+    color:'#000', weight: Math.max(24, weight + 18), opacity:0, lineCap:'round', lineJoin:'round'
+  }).addTo(drawingsLayer);
+  hitLine.on('click', (e) => {
+    L.DomEvent.stop(e); // タップが地図まで伝わって地点登録が開かないようにする
+    if (currentMode !== 'edit') return; // 修整モード以外では編集画面を開かない（誤操作防止）
+    openDrawingEditSheet(d.id);
+  });
+  // 長押しの検出はcontainer側(findHitObject/fireLongPress)でまとめて行う
+
+  // すでに選択中（編集画面が開いている）の線は、そのままドラッグで全体を動かせるようにする
+  hitLine.on('mousedown', (e) => {
+    if (selectedDrawingId !== d.id) return;
+    L.DomEvent.stop(e);
+    lineDragState = { d, startLatLng: e.latlng, originalPoints: d.points.map(p => [p[0], p[1]]) };
+  });
+
+  let arrowMarker = null;
+  if (d.arrow && d.points.length >= 2) {
+    arrowMarker = buildArrowMarker(d);
+  }
+
+  drawingLayerRefs[d.id] = { visibleLine, hitLine, arrowMarker };
+}
+
+function buildArrowMarker(d){
+  const n = d.points.length;
+  // 点の数はすでに間引き済み（ノイズが取り除かれている）なので、
+  // 最後の区間の向きを使うことで、指を引っ張った方向にきちんと合わせる
+  const p1 = L.latLng(d.points[n-2]);
+  const p2 = L.latLng(d.points[n-1]);
+  const angle = bearingDeg(p1, p2);
+  const size = 14 + (d.weight || 3) * 2;
+  const icon = L.divIcon({
+    className:'',
+    html: `<div style="width:${size}px; height:${size}px;
+      transform:rotate(${angle}deg); transform-origin:50% 100%;
+      clip-path:polygon(50% 0%, 0% 100%, 100% 100%);
+      background:${d.color};"></div>`,
+    iconSize:[size, size],
+    iconAnchor:[size/2, size] // 底辺の中央を線の先端に固定する
+  });
+  return L.marker(p2, { icon, interactive:false }).addTo(drawingsLayer);
+}
+
+// 頂点(点)を動かしたときに、線・矢じりの表示を更新する
+function updateDrawingRender(d){
+  const ref = drawingLayerRefs[d.id];
+  if (!ref) return;
+  ref.visibleLine.setLatLngs(d.points);
+  ref.hitLine.setLatLngs(d.points);
+  if (ref.arrowMarker) {
+    drawingsLayer.removeLayer(ref.arrowMarker);
+    ref.arrowMarker = d.arrow ? buildArrowMarker(d) : null;
+    drawingLayerRefs[d.id].arrowMarker = ref.arrowMarker;
+  }
+}
+
+// ---------- 線の端点をつまんで動かす編集ハンドル ----------
+let vertexHandles = [];
+
+function clearVertexHandles(){
+  vertexHandles.forEach(h => map.removeLayer(h));
+  vertexHandles = [];
+}
+
+// 直前まで選択（アクティブ）していた線があれば、編集対象から外す。
+// これをしないまま次の新しい手書きを始めると、前の線の頂点ハンドルや
+// 全体ドラッグの判定が残ったままになり、新旧の線が混ざる原因になる。
+function deselectActiveDrawing(){
+  if (!selectedDrawingId) return;
+  clearVertexHandles();
+  selectedDrawingId = null;
+  lineDragState = null;
+  document.getElementById('drawingEditOverlay').classList.remove('open');
+  renderAllDrawings(); // 線の表示を作り直し、長押し等のイベントを確実に効かせる
+}
+
+function showVertexHandles(id){
+  clearVertexHandles();
+  const d = drawings.find(x => x.id === id);
+  if (!d) return;
+
+  const handleIcon = L.divIcon({
+    className:'',
+    html: '<div class="vertex-handle"></div>',
+    iconSize:[22,22],
+    iconAnchor:[11,11]
+  });
+
+  d.points.forEach((pt, index) => {
+    const handle = L.marker(pt, { icon: handleIcon, draggable:true, zIndexOffset: 2000 }).addTo(map);
+    handle.on('drag', () => {
+      const ll = handle.getLatLng();
+      d.points[index] = [ll.lat, ll.lng];
+      updateDrawingRender(d);
+    });
+    handle.on('dragend', async () => {
+      d.updatedAt = Date.now();
+      await saveDrawings();
+    });
+    vertexHandles.push(handle);
+  });
+}
+
+function openDrawingEditSheet(id){
+  selectedDrawingId = id;
+  showVertexHandles(id);
+  const d = drawings.find(x => x.id === id);
+  applyToggleAppearance(document.getElementById('editArrowToggleBtn'), !!(d && d.arrow));
+  document.getElementById('drawingCreatorInfo').textContent = d
+    ? `登録者：${d.createdBy || '不明'}（${new Date(d.createdAt).toLocaleDateString('ja-JP')}）` : '';
+  document.getElementById('drawingEditOverlay').classList.add('open');
+}
+document.getElementById('editArrowToggleBtn').addEventListener('click', async () => {
+  const d = drawings.find(x => x.id === selectedDrawingId);
+  if (!d) return;
+  d.arrow = !d.arrow;
+  d.updatedAt = Date.now();
+  renderAllDrawings();
+  showVertexHandles(selectedDrawingId);
+  applyToggleAppearance(document.getElementById('editArrowToggleBtn'), d.arrow);
+  await saveDrawings();
+});
+document.querySelectorAll('#drawingEditOverlay .color-swatch').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const d = drawings.find(x => x.id === selectedDrawingId);
+    if (d) {
+      d.color = btn.dataset.editColor;
+      d.updatedAt = Date.now();
+      renderAllDrawings();
+      showVertexHandles(selectedDrawingId);
+      await saveDrawings();
+    }
+  });
+});
+document.getElementById('deleteDrawingBtn').addEventListener('click', () => {
+  showDeleteConfirm('この線を削除しますか？ゴミ箱から' + TRASH_RETENTION_DAYS + '日以内なら元に戻せます。', async () => {
+    const d = drawings.find(x => x.id === selectedDrawingId);
+    if (d) await moveToTrash('drawing', d);
+    clearVertexHandles();
+    drawings = drawings.filter(x => x.id !== selectedDrawingId);
+    renderAllDrawings();
+    await saveDrawings();
+    selectedDrawingId = null;
+    lineDragState = null;
+    document.getElementById('drawingEditOverlay').classList.remove('open');
+  });
+});
+document.getElementById('closeDrawingEditBtn').addEventListener('click', () => {
+  clearVertexHandles();
+  selectedDrawingId = null;
+  lineDragState = null;
+  document.getElementById('drawingEditOverlay').classList.remove('open');
+  renderAllDrawings(); // 線の表示を作り直し、長押し等のイベントを確実に効かせる
+});
+
+// ---------- スタンプ：保存・読み込み・描画 ----------
+async function loadStamps(){
+  try {
+    const raw = localStorage.getItem(STAMPS_KEY);
+    stamps = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    stamps = [];
+  }
+}
+async function saveStamps(){
+  try {
+    localStorage.setItem(STAMPS_KEY, JSON.stringify(stamps));
+  } catch (e) {
+    console.error('スタンプの保存に失敗', e);
+    alert('スタンプの保存に失敗しました。');
+  }
+}
+function renderAllStamps(){
+  stampsLayer.clearLayers();
+  stampMarkers = [];
+  stampMarkerById = {};
+  stamps.forEach(s => addStampToMap(s));
+}
+let stampMarkers = []; // モード切替時にドラッグの可否をまとめて切り替えるための一覧
+
+let stampMarkerById = {};
+
+function addStampToMap(s){
+  const t = STAMP_TYPES[s.type] || STAMP_TYPES.caution;
+  const rotation = s.rotation || 0;
+  const hasTime = !!(s.timeStart && s.timeEnd);
+  const icon = L.divIcon({
+    className:'',
+    html: `<div style="position:relative; width:32px; height:${hasTime ? 48 : 32}px;">
+      <div class="stamp-badge" style="border-color:${t.color}; transform:rotate(${rotation}deg);">${t.emoji}</div>
+      ${hasTime ? `<div style="position:absolute; top:33px; left:50%; transform:translateX(-50%);
+        background:rgba(17,24,39,.85); color:#fff; font-size:9px; padding:1px 5px; border-radius:5px; white-space:nowrap;">${s.timeStart}〜${s.timeEnd}</div>` : ''}
+    </div>`,
+    iconSize:[32, hasTime ? 48 : 32],
+    iconAnchor:[16,16]
+  });
+  const marker = L.marker([s.lat, s.lng], { icon, draggable: (currentMode === 'edit') }).addTo(stampsLayer);
+  marker.on('click', () => {
+    if (currentMode === 'edit') openStampEditSheet(s.id);
+  });
+  // 長押しの検出はcontainer側(findHitObject/fireLongPress)でまとめて行う
+  marker.on('dragend', async () => {
+    const latlng = marker.getLatLng();
+    s.lat = latlng.lat;
+    s.lng = latlng.lng;
+    s.updatedAt = Date.now();
+    await saveStamps();
+  });
+  stampMarkers.push(marker);
+  stampMarkerById[s.id] = marker;
+}
+
+function refreshStampDraggable(){
+  stampMarkers.forEach(m => {
+    if (currentMode === 'edit') m.dragging.enable();
+    else m.dragging.disable();
+  });
+}
+function refreshPointsDraggable(){
+  markersLayer.eachLayer(m => {
+    if (currentMode === 'edit') m.dragging.enable();
+    else m.dragging.disable();
+  });
+}
+
+function placeStamp(latlng){
+  deselectActiveDrawing(); // 新しいスタンプが追加されたので、直前に選択していた線は編集対象から外す
+  const s = {
+    id: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    type: currentStampType,
+    lat: latlng.lat,
+    lng: latlng.lng,
+    rotation: 0,
+    createdAt: Date.now(),
+            updatedAt: Date.now(),
+            createdBy: currentUserName
+  };
+  stamps.push(s);
+  actionHistory.push({ type:'stamp', id:s.id });
+  addStampToMap(s);
+  saveStamps();
+}
+
+// ---------- 元に戻す（直前に追加した地点・線・スタンプを取り消す） ----------
+// ---------- 汎用の削除確認モーダル ----------
+// 連打で誤って削除してしまわないよう、表示直後の一瞬はボタンを押せなくする。
+// モーダル自体も画面中央に出るため、直前に押した削除ボタンの位置とは自然とずれる。
+function showDeleteConfirm(message, onConfirm){
+  const overlay = document.getElementById('genericConfirmOverlay');
+  document.getElementById('genericConfirmMessage').textContent = message;
+  const okBtn = document.getElementById('genericConfirmOkBtn');
+  const cancelBtn = document.getElementById('genericConfirmCancelBtn');
+
+  okBtn.disabled = true;
+  okBtn.style.opacity = '0.5';
+  overlay.classList.add('open');
+  const enableTimer = setTimeout(() => {
+    okBtn.disabled = false;
+    okBtn.style.opacity = '1';
+  }, 400);
+
+  function cleanup(){
+    clearTimeout(enableTimer);
+    overlay.classList.remove('open');
+    okBtn.removeEventListener('click', handleOk);
+    cancelBtn.removeEventListener('click', handleCancel);
+  }
+  function handleOk(){
+    if (okBtn.disabled) return;
+    cleanup();
+    onConfirm();
+  }
+  function handleCancel(){ cleanup(); }
+  okBtn.addEventListener('click', handleOk);
+  cancelBtn.addEventListener('click', handleCancel);
+}
+
+// ---------- ゴミ箱 ----------
+function trashItemLabel(item){
+  if (item.itemType === 'point') {
+    const typeLabel = item.data.type === 'delivery' ? '配達先' : '停車位置';
+    return `${typeLabel}：${item.data.name || item.data.memo || '(名前・メモなし)'}`;
+  }
+  if (item.itemType === 'drawing') return '手描きの線';
+  if (item.itemType === 'stamp') return 'スタンプ';
+  return '不明なデータ';
+}
+function renderTrashList(){
+  const listEl = document.getElementById('trashList');
+  const emptyEl = document.getElementById('trashEmpty');
+  listEl.innerHTML = '';
+  emptyEl.style.display = trash.length === 0 ? 'block' : 'none';
+  trash.forEach(item => {
+    const daysLeft = Math.max(0, TRASH_RETENTION_DAYS - Math.floor((Date.now() - item.deletedAt) / (24*60*60*1000)));
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:10px;';
+    row.innerHTML = `
+      <div style="min-width:0;">
+        <div style="font-size:13px; font-weight:600; color:var(--ink);">${escapeHtml(trashItemLabel(item))}</div>
+        <div style="font-size:11px; color:var(--sub); margin-top:2px;">
+          ${new Date(item.deletedAt).toLocaleDateString('ja-JP')}に${escapeHtml(item.deletedBy || '不明な人')}が削除・あと${daysLeft}日で消えます
+        </div>
+      </div>
+      <button class="btn btn-secondary restore-btn" style="padding:7px 12px; font-size:12px; flex-shrink:0;">復元</button>
+    `;
+    row.querySelector('.restore-btn').addEventListener('click', () => restoreFromTrash(item.id));
+    listEl.appendChild(row);
+  });
+}
+document.getElementById('trashBtn').addEventListener('click', () => {
+  renderTrashList();
+  document.getElementById('trashOverlay').classList.add('open');
+});
+document.getElementById('closeTrashBtn').addEventListener('click', () => {
+  document.getElementById('trashOverlay').classList.remove('open');
+});
+document.getElementById('trashRetentionNote').textContent =
+  `削除してから${TRASH_RETENTION_DAYS}日間はここから元に戻せます。期限が過ぎたものは自動で消えます。`;
+
+// ---------- データのバックアップ（書き出し・読み込み） ----------
+function exportData(){
+  const payload = {
+    appName: '配送マップ',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    exportedBy: currentUserName,
+    points, drawings, stamps, trash
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `配送マップ_バックアップ_${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+document.getElementById('exportDataBtn').addEventListener('click', exportData);
+
+let pendingImportPayload = null;
+document.getElementById('importDataBtn').addEventListener('click', () => {
+  document.getElementById('importFileInput').value = '';
+  document.getElementById('importFileInput').click();
+});
+document.getElementById('importFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (err) {
+      alert('このファイルは読み込めませんでした（正しいバックアップファイルではない可能性があります）');
+      return;
+    }
+    if (!Array.isArray(data.points) || !Array.isArray(data.drawings) || !Array.isArray(data.stamps)) {
+      alert('このファイルは配送マップのバックアップファイルではないようです');
+      return;
+    }
+    pendingImportPayload = data;
+    document.getElementById('importSummaryText').textContent =
+      `このファイルの中身：地点${data.points.length}件／線${data.drawings.length}件／スタンプ${(data.stamps||[]).length}件` +
+      (data.exportedBy ? `（${data.exportedBy}さんが書き出し）` : '') +
+      `\n\n今の端末のデータ：地点${points.length}件／線${drawings.length}件／スタンプ${stamps.length}件` +
+      `\n\n「追加する」は、同じ地点などがあれば更新日時が新しい方を残します（片方の削除も反映されます）。「置き換える」は今のデータを消してファイルの内容に差し替えます。`;
+    document.getElementById('importConfirmOverlay').classList.add('open');
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById('importCancelBtn').addEventListener('click', () => {
+  pendingImportPayload = null;
+  document.getElementById('importConfirmOverlay').classList.remove('open');
+});
+
+// 同じIDのデータがこちらと相手の両方にある場合、更新日時が新しい方を残す（Last-Write-Wins）。
+// 完璧な同時編集の解決にはならないが、2〜3人程度の運用であれば実用上十分な精度になる。
+function mergeArrayByUpdatedAt(localArr, incomingArr){
+  const byId = new Map(localArr.map(item => [item.id, item]));
+  incomingArr.forEach(incoming => {
+    const existing = byId.get(incoming.id);
+    if (!existing) {
+      byId.set(incoming.id, incoming);
+      return;
+    }
+    const existingTime = existing.updatedAt || existing.createdAt || 0;
+    const incomingTime = incoming.updatedAt || incoming.createdAt || 0;
+    if (incomingTime > existingTime) byId.set(incoming.id, incoming); // 相手の方が新しければ、その内容に差し替える
+  });
+  return Array.from(byId.values());
+}
+
+// 相手側でゴミ箱に入っている（＝削除された）ものは、こちらでまだ新しく編集していなければ
+// こちらでも削除扱いにする。こちらの方が後から編集していた場合は、削除より編集を優先して残す。
+function applyIncomingDeletions(localArr, incomingTrash, itemType){
+  return localArr.filter(item => {
+    const trashEntry = incomingTrash.find(t => t.itemType === itemType && t.data.id === item.id);
+    if (!trashEntry) return true;
+    const localTime = item.updatedAt || item.createdAt || 0;
+    return localTime > trashEntry.deletedAt; // こちらの編集の方が新しければ残す。そうでなければ削除する
+  });
+}
+
+async function applyImport(mode){
+  if (!pendingImportPayload) return;
+  const data = pendingImportPayload;
+  if (mode === 'replace') {
+    points = data.points || [];
+    drawings = data.drawings || [];
+    stamps = data.stamps || [];
+    trash = data.trash || [];
+  } else {
+    const incomingTrash = data.trash || [];
+    points = mergeArrayByUpdatedAt(applyIncomingDeletions(points, incomingTrash, 'point'), data.points || []);
+    drawings = mergeArrayByUpdatedAt(applyIncomingDeletions(drawings, incomingTrash, 'drawing'), data.drawings || []);
+    stamps = mergeArrayByUpdatedAt(applyIncomingDeletions(stamps, incomingTrash, 'stamp'), data.stamps || []);
+    const existingTrashIds = new Set(trash.map(t => t.id));
+    incomingTrash.forEach(t => { if (!existingTrashIds.has(t.id)) trash.push(t); });
+  }
+  await savePoints();
+  await saveDrawings();
+  await saveStamps();
+  await saveTrash();
+  renderAllMarkers();
+  renderAllDrawings();
+  renderAllStamps();
+  pendingImportPayload = null;
+  document.getElementById('importConfirmOverlay').classList.remove('open');
+  alert('読み込みが完了しました');
+}
+document.getElementById('importMergeBtn').addEventListener('click', () => applyImport('merge'));
+document.getElementById('importReplaceBtn').addEventListener('click', () => {
+  showDeleteConfirm('今のデータをすべて消して、ファイルの内容に置き換えます。本当によろしいですか？', () => applyImport('replace'));
+});
+
+
+// (drawingEditOverlay・stampEditOverlayは背景が透明で地図操作を優先しているため対象外)
+function setupOutsideClickClose(overlayId, onClose){
+  const overlay = document.getElementById(overlayId);
+  if (!overlay) return;
+  overlay.addEventListener('click', (e) => {
+    if (e.target !== overlay) return; // 中身(.sheet)をタップした場合は何もしない
+    if (onClose) onClose(); else overlay.classList.remove('open');
+  });
+}
+setupOutsideClickClose('newOverlay', () => document.getElementById('cancelNewBtn').click());
+setupOutsideClickClose('detailOverlay');
+setupOutsideClickClose('settingsOverlay');
+setupOutsideClickClose('searchOverlay', () => document.getElementById('closeSearchBtn').click());
+setupOutsideClickClose('trashOverlay');
+setupOutsideClickClose('importConfirmOverlay', () => document.getElementById('importCancelBtn').click());
+setupOutsideClickClose('genericConfirmOverlay', () => document.getElementById('genericConfirmCancelBtn').click());
+setupOutsideClickClose('ocrScanOverlay', closeOcrScan);
+setupOutsideClickClose('ocrCropOverlay', closeOcrCrop);
+
+// 右上の✕ボタンも、既存の「閉じる」と同じ処理を呼ぶ（下までスクロールしなくても閉じられるように）
+document.getElementById('closeNewXBtn').addEventListener('click', () => document.getElementById('cancelNewBtn').click());
+document.getElementById('closeDetailXBtn').addEventListener('click', () => document.getElementById('closeDetailBtn').click());
+document.getElementById('closeSettingsXBtn').addEventListener('click', () => document.getElementById('closeSettingsBtn').click());
+document.getElementById('closeSearchXBtn').addEventListener('click', () => document.getElementById('closeSearchBtn').click());
+document.getElementById('closeTrashXBtn').addEventListener('click', () => document.getElementById('closeTrashBtn').click());
+
+async function undoLastAction(){
+  while (actionHistory.length > 0) {
+    const last = actionHistory.pop();
+
+    if (last.type === 'point') {
+      const idx = points.findIndex(p => p.id === last.id);
+      if (idx !== -1) {
+        points.splice(idx, 1);
+        renderAllMarkers();
+        await savePoints();
+        return;
+      }
+    } else if (last.type === 'drawing') {
+      const idx = drawings.findIndex(d => d.id === last.id);
+      if (idx !== -1) {
+        drawings.splice(idx, 1);
+        renderAllDrawings();
+        await saveDrawings();
+        return;
+      }
+    } else if (last.type === 'stamp') {
+      const idx = stamps.findIndex(s => s.id === last.id);
+      if (idx !== -1) {
+        stamps.splice(idx, 1);
+        renderAllStamps();
+        await saveStamps();
+        return;
+      }
+    }
+    // すでに手動で削除済みだった場合は、その一つ前の履歴を確認する
+  }
+  alert('取り消せる操作がありません');
+}
+document.getElementById('hideDoneToggle').addEventListener('change', (e) => {
+  hideDoneEnabled = e.target.checked;
+  renderAllMarkers();
+});
+
+document.getElementById('undoBtn').addEventListener('click', undoLastAction);
+
+// ---------- 検索 ----------
+function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位置'; }
+
+function runSearch(query){
+  const resultsEl = document.getElementById('searchResults');
+  const emptyEl = document.getElementById('searchEmpty');
+  resultsEl.innerHTML = '';
+  const q = query.trim().toLowerCase();
+
+  const matched = q === '' ? [] : points.filter(p => {
+    const tagText = (p.tags || []).map(noteTagLabel).join(' ');
+    const haystack = [p.name, p.address, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+
+  emptyEl.style.display = (q !== '' && matched.length === 0) ? 'block' : 'none';
+
+  matched
+    .sort((a,b) => b.createdAt - a.createdAt)
+    .forEach(p => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--paper);';
+      const memoPreview = p.memo ? p.memo.slice(0, 40) : '';
+      const tagChips = sortTagsByGroup(p.tags).map(id => `<span class="note-tag-chip" style="font-size:10px; padding:2px 7px;">${noteTagLabel(id)}</span>`).join('');
+      row.innerHTML = `
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'};">
+          ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
+        </div>
+        ${p.name ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px;">${escapeHtml(p.name)}</div>` : ''}
+        ${p.address ? `<div style="font-size:12px; color:var(--sub); margin-top:1px;">📍 ${escapeHtml(p.address)}</div>` : ''}
+        ${tagChips ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">${tagChips}</div>` : ''}
+        ${memoPreview ? `<div style="font-size:13px; color:var(--ink); margin-top:3px;">${escapeHtml(memoPreview)}</div>` : ''}
+      `;
+      row.addEventListener('click', () => {
+        document.getElementById('searchOverlay').classList.remove('open');
+        map.setView([p.lat, p.lng], Math.max(map.getZoom(), 18));
+        setTimeout(() => openDetailSheet(p.id), 300); // 地図の移動が始まってから開く
+      });
+      resultsEl.appendChild(row);
+    });
+}
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+document.getElementById('searchBtn').addEventListener('click', () => {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = '';
+  document.getElementById('searchEmpty').style.display = 'none';
+  document.getElementById('searchOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('searchInput').focus(), 100);
+});
+document.getElementById('searchInput').addEventListener('input', (e) => runSearch(e.target.value));
+document.getElementById('closeSearchBtn').addEventListener('click', () => {
+  document.getElementById('searchOverlay').classList.remove('open');
+});
+
+function openStampEditSheet(id){
+  const s = stamps.find(x => x.id === id);
+  if (!s) return;
+  selectedStampId = id;
+  const t = STAMP_TYPES[s.type] || STAMP_TYPES.caution;
+  document.getElementById('stampEditTitle').textContent = t.emoji + ' ' + t.label;
+  document.getElementById('stampCreatorInfo').textContent =
+    `登録者：${s.createdBy || '不明'}（${new Date(s.createdAt).toLocaleDateString('ja-JP')}）`;
+  document.getElementById('stampRotateRow').style.display = (s.type === 'one_way') ? 'flex' : 'none';
+
+  const hasTime = !!(s.timeStart && s.timeEnd);
+  document.getElementById('stampTimeEnableInput').checked = hasTime;
+  document.getElementById('stampTimeInputs').style.display = hasTime ? 'flex' : 'none';
+  document.getElementById('stampTimeStartInput').value = s.timeStart || '08:00';
+  document.getElementById('stampTimeEndInput').value = s.timeEnd || '18:00';
+
+  document.getElementById('stampEditOverlay').classList.add('open');
+}
+function rotateSelectedStamp(delta){
+  const s = stamps.find(x => x.id === selectedStampId);
+  if (!s) return;
+  s.rotation = ((s.rotation || 0) + delta + 360) % 360;
+  s.updatedAt = Date.now();
+  renderAllStamps();
+  saveStamps();
+}
+document.getElementById('rotateLeftBtn').addEventListener('click', () => rotateSelectedStamp(-45));
+document.getElementById('rotateRightBtn').addEventListener('click', () => rotateSelectedStamp(45));
+
+function saveSelectedStampTime(){
+  const s = stamps.find(x => x.id === selectedStampId);
+  if (!s) return;
+  const enabled = document.getElementById('stampTimeEnableInput').checked;
+  if (enabled) {
+    s.timeStart = document.getElementById('stampTimeStartInput').value || '08:00';
+    s.timeEnd = document.getElementById('stampTimeEndInput').value || '18:00';
+  } else {
+    delete s.timeStart;
+    delete s.timeEnd;
+  }
+  s.updatedAt = Date.now();
+  renderAllStamps();
+  saveStamps();
+}
+document.getElementById('stampTimeEnableInput').addEventListener('change', (e) => {
+  document.getElementById('stampTimeInputs').style.display = e.target.checked ? 'flex' : 'none';
+  saveSelectedStampTime();
+});
+document.getElementById('stampTimeStartInput').addEventListener('change', saveSelectedStampTime);
+document.getElementById('stampTimeEndInput').addEventListener('change', saveSelectedStampTime);
+document.getElementById('deleteStampBtn').addEventListener('click', () => {
+  showDeleteConfirm('このスタンプを削除しますか？ゴミ箱から' + TRASH_RETENTION_DAYS + '日以内なら元に戻せます。', async () => {
+    const s = stamps.find(x => x.id === selectedStampId);
+    if (s) await moveToTrash('stamp', s);
+    stamps = stamps.filter(x => x.id !== selectedStampId);
+    renderAllStamps(); // 再描画時にrefreshStampDraggable相当の状態で作り直される
+    await saveStamps();
+    document.getElementById('stampEditOverlay').classList.remove('open');
+  });
+});
+document.getElementById('closeStampEditBtn').addEventListener('click', () => {
+  document.getElementById('stampEditOverlay').classList.remove('open');
+  refreshStampDraggable(); // 長押しで一時的に有効にしたドラッグを、現在のモードに応じた状態に戻す
+});
+
+// ---------- 設定（描画の初期値） ----------
+function loadDrawSettings(){
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s.color) currentDrawColor = s.color;
+      if (s.weight) currentLineWeight = s.weight;
+      if (typeof s.arrow === 'boolean') arrowEnabled = s.arrow;
+      if (s.modeBarPosition) modeBarPosition = s.modeBarPosition;
+      if (s.zoomBarPosition) zoomBarPosition = s.zoomBarPosition;
+      if (typeof s.darkMode === 'boolean') darkModeEnabled = s.darkMode;
+      if (typeof s.largeText === 'boolean') largeTextEnabled = s.largeText;
+      if (typeof s.showNameLabels === 'boolean') showNameLabelsEnabled = s.showNameLabels;
+    }
+  } catch (e) { /* 保存済み設定が無い場合は初期値のまま */ }
+
+  // 描画バー・設定シートの見た目を、読み込んだ初期値に合わせておく
+  document.querySelectorAll('#drawBar .color-swatch').forEach(b =>
+    b.classList.toggle('selected', b.dataset.color === currentDrawColor));
+  document.querySelectorAll('#drawBar .weight-swatch').forEach(b =>
+    b.classList.toggle('selected', Number(b.dataset.weight) === currentLineWeight));
+  document.querySelectorAll('#settingsOverlay .color-swatch').forEach(b =>
+    b.classList.toggle('selected', b.dataset.settingColor === currentDrawColor));
+  document.querySelectorAll('#settingsOverlay .weight-swatch').forEach(b =>
+    b.classList.toggle('selected', Number(b.dataset.settingWeight) === currentLineWeight));
+  document.querySelectorAll('#modeBarPositionPicker [data-corner]').forEach(b =>
+    b.classList.toggle('selected', b.dataset.corner === modeBarPosition));
+  document.querySelectorAll('#zoomBarPositionPicker [data-corner]').forEach(b =>
+    b.classList.toggle('selected', b.dataset.corner === zoomBarPosition));
+  updateArrowToggleLabel();
+  applyDarkMode();
+  applyLargeText();
+  applyShowNameLabels();
+  applyLayoutPositions();
+}
+
+function saveDrawSettings(){
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      color: currentDrawColor, weight: currentLineWeight, arrow: arrowEnabled,
+      modeBarPosition: modeBarPosition, zoomBarPosition: zoomBarPosition,
+      darkMode: darkModeEnabled, largeText: largeTextEnabled, showNameLabels: showNameLabelsEnabled
+    }));
+  } catch (e) { console.error('設定の保存に失敗', e); }
+}
+
+function applyToggleAppearance(btn, on){
+  if (!btn) return;
+  btn.querySelector('.box').textContent = on ? '✅' : '⬜';
+  btn.classList.toggle('on', on);
+}
+function updateArrowToggleLabel(){
+  applyToggleAppearance(document.getElementById('arrowToggleBtn'), arrowEnabled);
+  applyToggleAppearance(document.getElementById('settingArrowToggleBtn'), arrowEnabled);
+}
+function applyDarkMode(){
+  document.documentElement.dataset.theme = darkModeEnabled ? 'dark' : 'light';
+  applyToggleAppearance(document.getElementById('darkModeToggleBtn'), darkModeEnabled);
+}
+document.getElementById('darkModeToggleBtn').addEventListener('click', () => {
+  darkModeEnabled = !darkModeEnabled;
+  applyDarkMode();
+  saveDrawSettings();
+});
+function applyLargeText(){
+  document.documentElement.dataset.textSize = largeTextEnabled ? 'large' : 'normal';
+  applyToggleAppearance(document.getElementById('largeTextToggleBtn'), largeTextEnabled);
+}
+document.getElementById('largeTextToggleBtn').addEventListener('click', () => {
+  largeTextEnabled = !largeTextEnabled;
+  applyLargeText();
+  saveDrawSettings();
+});
+function applyShowNameLabels(){
+  const mapEl = document.getElementById('map');
+  if (mapEl) mapEl.classList.toggle('hide-name-labels', !showNameLabelsEnabled);
+  applyToggleAppearance(document.getElementById('showNameLabelsToggleBtn'), showNameLabelsEnabled);
+}
+document.getElementById('showNameLabelsToggleBtn').addEventListener('click', () => {
+  showNameLabelsEnabled = !showNameLabelsEnabled;
+  applyShowNameLabels();
+  saveDrawSettings();
+});
+
+document.getElementById('settingsBtn').addEventListener('click', () => {
+  document.getElementById('settingUserNameInput').value = currentUserName;
+  document.getElementById('settingsOverlay').classList.add('open');
+});
+document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+  document.getElementById('settingsOverlay').classList.remove('open');
+});
+document.getElementById('saveSettingUserNameBtn').addEventListener('click', () => {
+  const val = document.getElementById('settingUserNameInput').value.trim();
+  if (!val) {
+    document.getElementById('settingUserNameInput').style.borderColor = 'var(--red)';
+    return;
+  }
+  document.getElementById('settingUserNameInput').style.borderColor = 'var(--line)';
+  saveUserName(val);
+  const btn = document.getElementById('saveSettingUserNameBtn');
+  const original = btn.textContent;
+  btn.textContent = '✓ 保存しました';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+});
+document.querySelectorAll('#settingsOverlay .color-swatch').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentDrawColor = btn.dataset.settingColor;
+    document.querySelectorAll('#settingsOverlay .color-swatch').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.querySelectorAll('#drawBar .color-swatch').forEach(b =>
+      b.classList.toggle('selected', b.dataset.color === currentDrawColor));
+    saveDrawSettings();
+  });
+});
+document.querySelectorAll('#settingsOverlay .weight-swatch').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentLineWeight = Number(btn.dataset.settingWeight);
+    document.querySelectorAll('#settingsOverlay .weight-swatch').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.querySelectorAll('#drawBar .weight-swatch').forEach(b =>
+      b.classList.toggle('selected', Number(b.dataset.weight) === currentLineWeight));
+    saveDrawSettings();
+  });
+});
+document.getElementById('settingArrowToggleBtn').addEventListener('click', () => {
+  arrowEnabled = !arrowEnabled;
+  updateArrowToggleLabel();
+  saveDrawSettings();
+});
+document.querySelectorAll('#modeBarPositionPicker [data-corner]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    modeBarPosition = btn.dataset.corner;
+    document.querySelectorAll('#modeBarPositionPicker [data-corner]').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    applyLayoutPositions();
+    saveDrawSettings();
+  });
+});
+document.querySelectorAll('#zoomBarPositionPicker [data-corner]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    zoomBarPosition = btn.dataset.corner;
+    document.querySelectorAll('#zoomBarPositionPicker [data-corner]').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    applyLayoutPositions();
+    saveDrawSettings();
+  });
+});
+</script>
+</body>
+</html>
