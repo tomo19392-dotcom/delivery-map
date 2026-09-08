@@ -798,6 +798,27 @@
 </div>
 
 <!-- 削除確認シート -->
+<!-- すべて削除の確認（パスワード必須） -->
+<div class="sheet-overlay" id="deleteAllOverlay">
+  <div class="sheet" style="max-width:380px;">
+    <div class="handle"></div>
+    <h2>⚠️ 本当にすべて削除しますか？</h2>
+    <p style="font-size:13px; color:var(--sub); line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータが消えます。取り消せません。
+      続ける場合は、確認のためパスワードを入力してください。
+    </p>
+    <input type="password" id="deleteAllPasswordInput" placeholder="パスワード"
+      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:8px; background:var(--paper); color:var(--ink);" />
+    <div id="deleteAllErrorText" style="display:none; font-size:12px; color:var(--red); margin-bottom:8px;">
+      パスワードが違います。この操作は記録されます。
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="deleteAllNoBtn">いいえ</button>
+      <button class="btn btn-danger" id="deleteAllYesBtn">はい、削除する</button>
+    </div>
+  </div>
+</div>
+
 <!-- データ読み込みの確認 -->
 <div class="sheet-overlay" id="importConfirmOverlay">
   <div class="sheet" style="max-width:380px;">
@@ -910,6 +931,16 @@
       <button class="btn btn-secondary" id="importDataBtn">📥 読み込む</button>
     </div>
     <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
+
+    <label class="field-label" style="color:var(--red);">⚠️ 危険な操作</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータを消します。取り消せません。
+    </p>
+    <button class="btn btn-danger" id="deleteAllBtn" style="width:100%; margin-bottom:8px;">🗑️ すべて削除する</button>
+    <div id="deleteAllLogWrap" style="display:none; margin-bottom:16px;">
+      <label class="field-label" style="margin-top:0;">操作の記録</label>
+      <div id="deleteAllLogList" style="display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; font-size:11px; color:var(--sub);"></div>
+    </div>
 
     <label class="field-label">画面の見た目</label>
     <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
@@ -1258,6 +1289,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadDrawings();
   await loadStamps();
   await loadTrash();
+  await loadDeleteAllLog();
+  renderDeleteAllLog();
   renderAllMarkers();
   renderAllDrawings();
   renderAllStamps();
@@ -3479,6 +3512,78 @@ document.getElementById('closeTrashBtn').addEventListener('click', () => {
 });
 document.getElementById('trashRetentionNote').textContent =
   `削除してから${TRASH_RETENTION_DAYS}日間はここから元に戻せます。期限が過ぎたものは自動で消えます。`;
+
+// ---------- すべて削除（パスワード必須。誰がいつ削除・失敗したかを記録する） ----------
+const DELETE_ALL_PASSWORD = '削除';
+const DELETE_ALL_LOG_KEY = 'delivery-delete-all-log-v1';
+let deleteAllLog = [];
+
+async function loadDeleteAllLog(){
+  try {
+    const raw = localStorage.getItem(DELETE_ALL_LOG_KEY);
+    deleteAllLog = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    deleteAllLog = [];
+  }
+}
+async function saveDeleteAllLog(){
+  try { localStorage.setItem(DELETE_ALL_LOG_KEY, JSON.stringify(deleteAllLog)); }
+  catch (e) { console.error('記録の保存に失敗', e); }
+}
+function addDeleteAllLogEntry(result){
+  // result: 'success'（削除実行）| 'failed'（パスワード誤り）
+  deleteAllLog.unshift({ result, name: currentUserName || '不明', at: Date.now() });
+  deleteAllLog = deleteAllLog.slice(0, 50); // 記録が無限に増え続けないよう、直近50件だけ残す
+  saveDeleteAllLog();
+  renderDeleteAllLog();
+}
+function renderDeleteAllLog(){
+  const wrap = document.getElementById('deleteAllLogWrap');
+  const list = document.getElementById('deleteAllLogList');
+  if (deleteAllLog.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  list.innerHTML = deleteAllLog.map(entry => {
+    const dateStr = new Date(entry.at).toLocaleString('ja-JP');
+    return entry.result === 'success'
+      ? `<div>🗑️ ${dateStr}：${escapeHtml(entry.name)}さんが削除を実行</div>`
+      : `<div style="color:var(--red);">⚠️ ${dateStr}：${escapeHtml(entry.name)}さんがパスワードを間違えました</div>`;
+  }).join('');
+}
+
+document.getElementById('deleteAllBtn').addEventListener('click', () => {
+  document.getElementById('deleteAllPasswordInput').value = '';
+  document.getElementById('deleteAllErrorText').style.display = 'none';
+  document.getElementById('deleteAllOverlay').classList.add('open');
+});
+document.getElementById('deleteAllNoBtn').addEventListener('click', () => {
+  document.getElementById('deleteAllOverlay').classList.remove('open');
+});
+document.getElementById('deleteAllYesBtn').addEventListener('click', async () => {
+  const input = document.getElementById('deleteAllPasswordInput').value;
+  if (input !== DELETE_ALL_PASSWORD) {
+    addDeleteAllLogEntry('failed');
+    document.getElementById('deleteAllErrorText').style.display = 'block';
+    document.getElementById('deleteAllPasswordInput').value = '';
+    return;
+  }
+  // パスワード正解：すべて削除して記録する
+  points = [];
+  drawings = [];
+  stamps = [];
+  trash = [];
+  await savePoints();
+  await saveDrawings();
+  await saveStamps();
+  await saveTrash();
+  renderAllMarkers();
+  renderAllDrawings();
+  renderAllStamps();
+  addDeleteAllLogEntry('success');
+  document.getElementById('deleteAllOverlay').classList.remove('open');
+  document.getElementById('settingsOverlay').classList.remove('open');
+  alert('すべてのデータを削除しました。');
+});
+setupOutsideClickClose('deleteAllOverlay', () => document.getElementById('deleteAllNoBtn').click());
 
 // ---------- データのバックアップ（書き出し・読み込み） ----------
 function exportData(){
