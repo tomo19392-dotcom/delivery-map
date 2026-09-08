@@ -814,7 +814,7 @@
     </div>
     <div class="btn-row">
       <button class="btn btn-secondary" id="deleteAllNoBtn">いいえ</button>
-      <button class="btn btn-danger" id="deleteAllYesBtn">はい、削除する</button>
+      <button class="btn btn-danger" id="deleteAllYesBtn">すべて削除します。</button>
     </div>
   </div>
 </div>
@@ -3514,7 +3514,7 @@ document.getElementById('trashRetentionNote').textContent =
   `削除してから${TRASH_RETENTION_DAYS}日間はここから元に戻せます。期限が過ぎたものは自動で消えます。`;
 
 // ---------- すべて削除（パスワード必須。誰がいつ削除・失敗したかを記録する） ----------
-const DELETE_ALL_PASSWORD = '削除';
+const DELETE_ALL_PASSWORD = 'sakujo';
 const DELETE_ALL_LOG_KEY = 'delivery-delete-all-log-v1';
 let deleteAllLog = [];
 
