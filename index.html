@@ -797,28 +797,6 @@
   </div>
 </div>
 
-<!-- 削除確認シート -->
-<!-- すべて削除の確認（パスワード必須） -->
-<div class="sheet-overlay" id="deleteAllOverlay">
-  <div class="sheet" style="max-width:380px;">
-    <div class="handle"></div>
-    <h2>⚠️ 本当にすべて削除しますか？</h2>
-    <p style="font-size:13px; color:var(--sub); line-height:1.6;">
-      地点・線・スタンプ・ゴミ箱を含む、すべてのデータが消えます。取り消せません。
-      続ける場合は、確認のためパスワードを入力してください。
-    </p>
-    <input type="password" id="deleteAllPasswordInput" placeholder="パスワード"
-      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:8px; background:var(--paper); color:var(--ink);" />
-    <div id="deleteAllErrorText" style="display:none; font-size:12px; color:var(--red); margin-bottom:8px;">
-      パスワードが違います。この操作は記録されます。
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-secondary" id="deleteAllNoBtn">いいえ</button>
-      <button class="btn btn-danger" id="deleteAllYesBtn">すべて削除します。</button>
-    </div>
-  </div>
-</div>
-
 <!-- データ読み込みの確認 -->
 <div class="sheet-overlay" id="importConfirmOverlay">
   <div class="sheet" style="max-width:380px;">
@@ -932,16 +910,6 @@
     </div>
     <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
 
-    <label class="field-label" style="color:var(--red);">⚠️ 危険な操作</label>
-    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
-      地点・線・スタンプ・ゴミ箱を含む、すべてのデータを消します。取り消せません。
-    </p>
-    <button class="btn btn-danger" id="deleteAllBtn" style="width:100%; margin-bottom:8px;">🗑️ すべて削除する</button>
-    <div id="deleteAllLogWrap" style="display:none; margin-bottom:16px;">
-      <label class="field-label" style="margin-top:0;">操作の記録</label>
-      <div id="deleteAllLogList" style="display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; font-size:11px; color:var(--sub);"></div>
-    </div>
-
     <label class="field-label">画面の見た目</label>
     <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
       <button class="toggle-btn" id="darkModeToggleBtn"><span class="box">⬜</span> ダークモード</button>
@@ -993,8 +961,40 @@
       同じ場所を選んでも重なりません。自動で縦に並びます。
     </p>
 
+    <label class="field-label" style="color:var(--red); margin-top:24px;">⚠️ 危険な操作</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータを消します。取り消せません。
+    </p>
+    <button class="btn btn-danger" id="deleteAllBtn" style="width:100%; margin-bottom:8px;">🗑️ すべて削除する</button>
+    <div id="deleteAllLogWrap" style="display:none; margin-bottom:16px;">
+      <label class="field-label" style="margin-top:0;">操作の記録</label>
+      <div id="deleteAllLogList" style="display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; font-size:11px; color:var(--sub);"></div>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-secondary" id="closeSettingsBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- すべて削除の確認（パスワード必須）。settingsOverlayより後ろに置くことで、
+     設定画面の上に確実に重なって表示されるようにしている。 -->
+<div class="sheet-overlay" id="deleteAllOverlay">
+  <div class="sheet" style="max-width:380px;">
+    <div class="handle"></div>
+    <h2>⚠️ 本当にすべて削除しますか？</h2>
+    <p style="font-size:13px; color:var(--sub); line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータが消えます。取り消せません。
+      続ける場合は、確認のためパスワードを入力してください。
+    </p>
+    <input type="password" id="deleteAllPasswordInput" placeholder="パスワード"
+      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:8px; background:var(--paper); color:var(--ink);" />
+    <div id="deleteAllErrorText" style="display:none; font-size:12px; color:var(--red); margin-bottom:8px;">
+      パスワードが違います。この操作は記録されます。
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="deleteAllNoBtn">いいえ</button>
+      <button class="btn btn-danger" id="deleteAllYesBtn">すべて削除します。</button>
     </div>
   </div>
 </div>
