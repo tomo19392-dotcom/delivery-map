@@ -844,20 +844,21 @@
   </div>
 </div>
 
-<!-- 撮った写真から、住所・名前の部分だけを指でなぞって囲む画面 -->
+<!-- 写真から一部分だけを指でなぞって囲む画面（OCR・写真添付の両方で共用） -->
 <div class="sheet-overlay" id="ocrCropOverlay" style="background:rgba(0,0,0,.9); align-items:center;">
   <div style="width:100%; max-width:480px; padding:16px;">
     <div id="ocrCropStage" style="position:relative; width:100%; height:50vh; touch-action:none; overflow:hidden; border-radius:12px; background:#000;">
       <img id="ocrCropImage" style="width:100%; height:100%; object-fit:contain; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none;" />
       <div id="ocrCropRect" style="position:absolute; border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.55); display:none; pointer-events:none;"></div>
     </div>
-    <p style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
+    <p id="ocrCropInstruction" style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
       指でなぞって、住所・名前が書かれた部分だけを囲んでください
     </p>
     <div id="ocrCropStatus" style="color:#fff; text-align:center; font-size:13px; min-height:18px; margin-top:4px;"></div>
-    <div style="display:flex; justify-content:center; gap:12px; margin-top:14px;">
-      <button class="btn btn-secondary" id="ocrCropCancelBtn" style="padding:12px 22px;">キャンセル</button>
-      <button class="btn btn-primary" id="ocrCropConfirmBtn" style="padding:12px 22px; font-size:14px;">この範囲を読み取る</button>
+    <div style="display:flex; justify-content:center; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="ocrCropCancelBtn" style="padding:12px 18px;">キャンセル</button>
+      <button class="btn btn-secondary" id="ocrCropUseAsIsBtn" style="display:none; padding:12px 18px;">そのまま使う</button>
+      <button class="btn btn-primary" id="ocrCropConfirmBtn" style="padding:12px 18px; font-size:14px;">この範囲を読み取る</button>
     </div>
   </div>
 </div>
@@ -2278,7 +2279,7 @@ document.getElementById('ocrScanCaptureBtn').addEventListener('click', () => {
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
     closeOcrScan();
-    openOcrCrop(canvas);
+    openImageCropUI(canvas, 'ocr', runOcrOnCanvas);
   } catch (err) {
     console.error('OCR capture error:', err);
     alert('撮影した写真の取り込みに失敗しました。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
@@ -2295,7 +2296,7 @@ document.getElementById('ocrPhotoInput').addEventListener('change', (e) => {
     canvas.width = img.width;
     canvas.height = img.height;
     canvas.getContext('2d').drawImage(img, 0, 0);
-    openOcrCrop(canvas);
+    openImageCropUI(canvas, 'ocr', runOcrOnCanvas);
   };
   img.src = URL.createObjectURL(file);
 });
@@ -2303,9 +2304,19 @@ document.getElementById('ocrPhotoInput').addEventListener('change', (e) => {
 // ---- 撮った写真から、範囲を指でなぞって選ぶ ----
 let ocrCaptureCanvas = null; // 撮影・選択された元画像（切り抜きの元になる）
 let ocrCropState = null; // ドラッグ中の座標を保持
+let cropResultCallback = null; // 「この範囲を使う」時に呼ぶ関数（用途によって切り替える）
 
-function openOcrCrop(sourceCanvas){
+// mode: 'ocr'（文字を読み取る）| 'photo'（写真として使う）
+function openImageCropUI(sourceCanvas, mode, onCropped){
   ocrCaptureCanvas = sourceCanvas;
+  cropResultCallback = onCropped;
+  const isOcr = (mode === 'ocr');
+  document.getElementById('ocrCropInstruction').textContent = isOcr
+    ? '指でなぞって、住所・名前が書かれた部分だけを囲んでください'
+    : '指でなぞって、使いたい範囲だけを囲んでください（そのまま使うこともできます）';
+  document.getElementById('ocrCropConfirmBtn').textContent = isOcr ? 'この範囲を読み取る' : 'この範囲を使う';
+  document.getElementById('ocrCropUseAsIsBtn').style.display = isOcr ? 'none' : 'inline-block';
+
   const img = document.getElementById('ocrCropImage');
   img.onerror = () => {
     document.getElementById('ocrCropStatus').textContent = '写真の表示に失敗しました。もう一度撮り直してください。';
@@ -2318,8 +2329,16 @@ function openOcrCrop(sourceCanvas){
 function closeOcrCrop(){
   document.getElementById('ocrCropOverlay').classList.remove('open');
   ocrCaptureCanvas = null;
+  cropResultCallback = null;
 }
 document.getElementById('ocrCropCancelBtn').addEventListener('click', closeOcrCrop);
+document.getElementById('ocrCropUseAsIsBtn').addEventListener('click', () => {
+  // 切り抜かず、元の画像をそのまま使う
+  const canvas = ocrCaptureCanvas;
+  const callback = cropResultCallback;
+  closeOcrCrop();
+  if (callback) callback(canvas);
+});
 
 (function setupOcrCropDragging(){
   const stage = document.getElementById('ocrCropStage');
@@ -2421,13 +2440,14 @@ document.getElementById('ocrCropConfirmBtn').addEventListener('click', async () 
     cropped.height = Math.round(cropH);
     cropped.getContext('2d').drawImage(ocrCaptureCanvas, cropX, cropY, cropW, cropH, 0, 0, cropped.width, cropped.height);
 
+    const callback = cropResultCallback;
     closeOcrCrop();
-    await runOcrOnCanvas(cropped);
+    if (callback) await callback(cropped);
   } catch (err) {
     // 何が起きても「無反応」にはせず、必ず目に見える形でエラーを伝える
-    console.error('OCR crop confirm error:', err);
+    console.error('crop confirm error:', err);
     document.getElementById('ocrProcessingOverlay').classList.remove('open');
-    alert('読み取り処理でエラーが発生しました。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
+    alert('処理でエラーが発生しました。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
   }
 });
 
@@ -2482,13 +2502,23 @@ document.getElementById('ocrApplyBothBtn').addEventListener('click', () => {
   setTimeout(() => { btn.textContent = original; }, 1200);
 });
 
-document.getElementById('photoInput').addEventListener('change', async (e) => {
+document.getElementById('photoInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  const resized = await resizeImageToDataUrl(file);
-  pendingPhotos.push(resized); // 置き換えず、追加する
-  renderPhotoPreviewList();
   e.target.value = ''; // 同じ写真をもう一度選んでも追加できるように、選択状態をリセットする
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    openImageCropUI(canvas, 'photo', async (croppedCanvas) => {
+      const resized = await resizeCanvasToDataUrl(croppedCanvas);
+      pendingPhotos.push(resized); // 置き換えず、追加する
+      renderPhotoPreviewList();
+    });
+  };
+  img.src = URL.createObjectURL(file);
 });
 
 document.getElementById('cancelNewBtn').addEventListener('click', () => {
@@ -3028,6 +3058,16 @@ function resizeImageToDataUrl(file, maxWidth = 900, quality = 0.6){
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+// 撮影・切り抜き済みのcanvasを、容量を抑えるためリサイズ・圧縮する（写真添付・トリミング後に使う）
+function resizeCanvasToDataUrl(sourceCanvas, maxWidth = 900, quality = 0.6){
+  const scale = Math.min(1, maxWidth / sourceCanvas.width);
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceCanvas.width * scale;
+  canvas.height = sourceCanvas.height * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', quality);
 }
 
 // ---------- モード切り替え（地点登録／手書き／スタンプ） ----------
