@@ -216,6 +216,7 @@
     padding:10px 16px; font-size:13px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);
     display:flex; align-items:center; gap:6px; cursor:pointer;
   }
+  .fab.following{ background:var(--blue); border-color:var(--blue); color:#fff; } /* 追従中は一目で分かるよう色を変える */
 
   /* 凡例 */
   #legend{
@@ -610,7 +611,11 @@
     </div>
 
     <div class="sheet-scroll-body">
-      <label class="field-label">名前・呼び名（任意）</label>
+      <label class="field-label">ふりがな（任意・すぐ打てる方をここに）</label>
+      <input type="text" id="nameKanaInput" placeholder="例）たなか"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">名前・呼び名（漢字・任意。あとで分かれば入力）</label>
       <input type="text" id="nameInput" placeholder="例）田中様／○○マンション301"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
@@ -697,6 +702,7 @@
   <div class="sheet">
     <button class="sheet-close-x" id="closeDetailXBtn">✕</button>
     <div class="handle"></div>
+    <div id="detailNameKana" style="display:none; font-size:12px; color:var(--sub); background:var(--bg); padding:2px 8px; border-radius:6px; margin-bottom:4px;"></div>
     <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
     <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
     <div id="detailTypeWrap"></div>
@@ -1821,7 +1827,12 @@ function initMap(){
 
   document.getElementById('recenterBtn').addEventListener('click', () => {
     if (myMarker) {
+      if (followMyLocation) {
+        setFollowMyLocation(false); // 追従中にもう一度押したら解除する
+        return;
+      }
       map.setView(myMarker.getLatLng(), Math.max(map.getZoom(), 16));
+      setFollowMyLocation(true); // 追従モードを開始する（もう一度押すと解除）
       return;
     }
     // まだ現在地が分かっていない場合は、ここで改めて位置情報の利用を求める
@@ -1835,6 +1846,7 @@ function initMap(){
       (pos) => {
         placeMyMarker([pos.coords.latitude, pos.coords.longitude]);
         map.setView(myMarker.getLatLng(), 16);
+        setFollowMyLocation(true);
       },
       (err) => {
         const messages = { 1:'許可されていません', 2:'現在地を特定できません', 3:'取得がタイムアウトしました' };
@@ -1844,6 +1856,20 @@ function initMap(){
       { enableHighAccuracy:true, timeout:10000 }
     );
   });
+
+  // 手で地図を動かしたら、勝手に現在地へ戻され続けると邪魔になるので追従を止める
+  map.on('dragstart', () => setFollowMyLocation(false));
+}
+
+// ---------- 現在地の自動追従 ----------
+// 「現在地に戻る」を押すたびに手で押し直さなくていいよう、押した後は
+// 自分の位置が動くのに合わせて地図も追いかけるモードにする。
+// 地図を手で動かしたら自動的に解除する（追従と手動操作がケンカしないように）。
+let followMyLocation = false;
+function setFollowMyLocation(on){
+  followMyLocation = on;
+  const btn = document.getElementById('recenterBtn');
+  if (btn) btn.classList.toggle('following', on);
 }
 
 // ---------- 現在地 ----------
@@ -1884,6 +1910,7 @@ function startWatchingMyLocation(){
       const firstTime = !myMarker;
       placeMyMarker(latlng);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
+      else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
     },
     (err) => {
       console.warn('位置情報を取得できません', err);
@@ -1954,7 +1981,8 @@ function addMarkerToMap(p){
   // ゼンリンの住宅地図のように「その場所に誰がいるか」が一目で分かることを重視し、
   // ある程度拡大したらピンの横に名前を出す（詳細を開かなくても分かるようにする）。
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
-  const nameLabel = (p.name && !p.buildingOutline) ? `<div class="pin-name-label">${escapeHtml(p.name)}</div>` : '';
+  const displayName = p.name || p.nameKana || '';
+  const nameLabel = (displayName && !p.buildingOutline) ? `<div class="pin-name-label">${escapeHtml(displayName)}</div>` : '';
   const html = `
     <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
       <div class="pin" style="background:${color};">
@@ -1979,7 +2007,7 @@ function addMarkerToMap(p){
     p.buildingOutline = null;
     p.buildingOutlineChecked = false;
     await savePoints();
-    if (p.name) tryAttachBuildingOutline(p);
+    if (p.name || p.nameKana) tryAttachBuildingOutline(p);
   });
   // 長押しの検出はcontainer側(findHitObject/fireLongPress)でまとめて行う
 }
@@ -2028,6 +2056,7 @@ function openNewSheet(latlng){
   }
   document.getElementById('saveNewBtn').textContent = '保存する';
   document.getElementById('nameInput').value = '';
+  document.getElementById('nameKanaInput').value = '';
   setPendingTags([]);
   document.getElementById('addressInput').value = '';
   document.getElementById('memoInput').value = '';
@@ -2065,6 +2094,7 @@ function openEditSheet(id){
   document.getElementById('newSheetTitle').textContent = 'この地点を編集';
   document.getElementById('saveNewBtn').textContent = '変更を保存する';
   document.getElementById('nameInput').value = p.name || '';
+  document.getElementById('nameKanaInput').value = p.nameKana || '';
   setPendingTags(p.tags);
   document.getElementById('addressInput').value = p.address || '';
   document.getElementById('memoInput').value = p.memo || '';
@@ -2542,6 +2572,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.type = pendingType;
       p.updatedAt = Date.now();
       p.name = document.getElementById('nameInput').value.trim();
+      p.nameKana = document.getElementById('nameKanaInput').value.trim();
       p.address = document.getElementById('addressInput').value.trim();
       p.memo = document.getElementById('memoInput').value.trim();
       p.tags = sortTagsByGroup(pendingTags);
@@ -2563,6 +2594,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       type: pendingType,
       status: 'pending',
       name: document.getElementById('nameInput').value.trim(),
+      nameKana: document.getElementById('nameKanaInput').value.trim(),
       address: document.getElementById('addressInput').value.trim(),
       memo: document.getElementById('memoInput').value.trim(),
       tags: sortTagsByGroup(pendingTags),
@@ -2599,7 +2631,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
   document.getElementById('newOverlay').classList.remove('open');
 
   // 名前が入っていれば、裏で建物の輪郭取得を試みる（時間がかかるので画面は先に閉じてよい）
-  if (savedPointForOutline && savedPointForOutline.name) {
+  if (savedPointForOutline && (savedPointForOutline.name || savedPointForOutline.nameKana)) {
     tryAttachBuildingOutline(savedPointForOutline);
   }
 
@@ -2739,11 +2771,11 @@ function renderBuildingOutlineForPoint(p){
   L.polygon(p.buildingOutline, {
     color: color, weight:2, fillColor: color, fillOpacity:0.15, interactive:false
   }).addTo(buildingOutlineLayer);
-  if (p.name) {
+  if (p.name || p.nameKana) {
     const centroid = polygonCentroid(p.buildingOutline);
     const icon = L.divIcon({
       className:'',
-      html: `<div class="building-name-label">${escapeHtml(p.name)}</div>`,
+      html: `<div class="building-name-label">${escapeHtml(p.name || p.nameKana)}</div>`,
       iconSize:[0,0]
     });
     L.marker(centroid, { icon, interactive:false }).addTo(buildingOutlineLayer);
@@ -2826,7 +2858,14 @@ function openDetailSheet(id){
   updateStatusButtonsUI(p.status || 'pending');
   document.getElementById('redeliveryDateInput').value = p.redeliveryDate || '';
 
-  document.getElementById('detailName').textContent = p.name || '（名前未登録）';
+  document.getElementById('detailName').textContent = p.name || (p.nameKana ? '' : '（名前未登録）');
+  const kanaEl = document.getElementById('detailNameKana');
+  if (p.nameKana) {
+    kanaEl.textContent = p.nameKana;
+    kanaEl.style.display = 'inline-block';
+  } else {
+    kanaEl.style.display = 'none';
+  }
   const retryBtn = document.getElementById('retryBuildingOutlineBtn');
   retryBtn.style.display = p.name ? 'inline-block' : 'none';
   retryBtn.textContent = p.buildingOutline ? '🏠 建物の形を取得し直す' : '🏠 建物の形を取得する';
@@ -3879,7 +3918,7 @@ function runSearch(query){
 
   const matched = q === '' ? [] : points.filter(p => {
     const tagText = (p.tags || []).map(noteTagLabel).join(' ');
-    const haystack = [p.name, p.address, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
+    const haystack = [p.name, p.nameKana, p.address, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
     return haystack.includes(q);
   });
 
@@ -3896,7 +3935,7 @@ function runSearch(query){
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'};">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
         </div>
-        ${p.name ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px;">${escapeHtml(p.name)}</div>` : ''}
+        ${(p.name || p.nameKana) ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px;">${escapeHtml(p.name || p.nameKana)}</div>` : ''}
         ${p.address ? `<div style="font-size:12px; color:var(--sub); margin-top:1px;">📍 ${escapeHtml(p.address)}</div>` : ''}
         ${tagChips ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">${tagChips}</div>` : ''}
         ${memoPreview ? `<div style="font-size:13px; color:var(--ink); margin-top:3px;">${escapeHtml(memoPreview)}</div>` : ''}
