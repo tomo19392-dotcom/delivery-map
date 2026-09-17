@@ -618,6 +618,11 @@
       <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
+      <div id="parkingCategoryWrap" style="display:none;">
+        <label class="field-label">停車位置の種類</label>
+        <div class="corner-picker" id="parkingCategoryPicker" style="margin-bottom:16px;"></div>
+      </div>
+
       <div id="linkedParkingWrap" style="display:none;">
         <label class="field-label">停車位置（任意）</label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:8px;">
@@ -791,6 +796,10 @@
     <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
       見つかりませんでした
     </div>
+    <button type="button" class="btn btn-secondary" id="geocodeSearchBtn" style="width:100%; margin-top:4px; padding:9px; font-size:13px;">
+      🗺️ この住所を地図で探す
+    </button>
+    <div id="geocodeStatusText" style="font-size:12px; color:var(--sub); text-align:center; margin-top:6px;"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
     </div>
@@ -1072,6 +1081,29 @@ let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
 let map, myMarker, markersLayer, buildingOutlineLayer, drawingsLayer, stampsLayer;
 let pendingLatLng = null;
 let pendingType = null;
+let pendingParkingCategory = 'general';
+function buildParkingCategoryPicker(){
+  const wrap = document.getElementById('parkingCategoryPicker');
+  wrap.innerHTML = '';
+  Object.keys(PARKING_CATEGORIES).forEach(key => {
+    const cat = PARKING_CATEGORIES[key];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'style-btn';
+    btn.dataset.category = key;
+    btn.textContent = `${cat.emoji} ${cat.label}`;
+    btn.addEventListener('click', () => {
+      pendingParkingCategory = key;
+      wrap.querySelectorAll('.style-btn').forEach(b => b.classList.toggle('selected', b.dataset.category === key));
+    });
+    wrap.appendChild(btn);
+  });
+}
+function setPendingParkingCategory(category){
+  pendingParkingCategory = category || 'general';
+  document.querySelectorAll('#parkingCategoryPicker .style-btn').forEach(b =>
+    b.classList.toggle('selected', b.dataset.category === pendingParkingCategory));
+}
 let pendingPhotos = []; // 複数枚の写真を扱う
 let selectedPointId = null;
 let parkingRelationLayer = null; // 「地図で位置関係を見る」で一時的に表示する線・マーカー
@@ -1185,6 +1217,14 @@ const STAMP_TYPES = {
   one_way:   { emoji:'⬆️', label:'一方通行', color:'#4FA0D6' }
 };
 
+// 停車位置の種類：イオンの駐車場やガソリンスタンドのような、誰でも分かる目印になる
+// 大きな施設は、他の停車位置(住宅の前など)と見分けやすいよう別アイコンにする
+const PARKING_CATEGORIES = {
+  general:     { emoji:'🅿️', label:'一般（住宅前など）' },
+  mall:        { emoji:'🏬', label:'商業施設の駐車場' },
+  gas_station: { emoji:'⛽', label:'ガソリンスタンド' }
+};
+
 // ---------- 画面焼き付き対策 ----------
 // スマホをホルダー等に固定して長時間同じ画面を表示し続ける使い方を想定し、
 // ヘッダーや四隅のボタン類の位置を数分おきに1〜2pxだけ、気づかれない範囲でずらす。
@@ -1287,6 +1327,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initMap();
   buildStampBar();
   buildNoteTagsUI();
+  buildParkingCategoryPicker();
   loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
   await loadPoints();
   await loadDrawings();
@@ -1902,6 +1943,13 @@ function addMarkerToMap(p){
   // 配達完了・不在などのステータスは今は表示に使わない方針のため、
   // ピンの色・バッジ・再配達日表示はステータスに関わらず常に通常表示にする。
   const color = p.type === 'delivery' ? '#E8862E' : '#4FA0D6';
+  // イオンの駐車場やガソリンスタンドのような、誰でも分かる目印になる場所は、
+  // 他の停車位置（住宅前など）と見分けやすいよう、ピンの中に絵文字を出す
+  const parkingCat = (p.type === 'parking' && p.parkingCategory && p.parkingCategory !== 'general')
+    ? PARKING_CATEGORIES[p.parkingCategory] : null;
+  const pinInner = parkingCat
+    ? `<div class="pin-inner" style="display:flex; align-items:center; justify-content:center; font-size:9px; line-height:1; transform:rotate(45deg);">${parkingCat.emoji}</div>`
+    : `<div class="pin-inner"></div>`;
   // ゼンリンの住宅地図のように「その場所に誰がいるか」が一目で分かることを重視し、
   // ある程度拡大したらピンの横に名前を出す（詳細を開かなくても分かるようにする）。
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
@@ -1909,7 +1957,7 @@ function addMarkerToMap(p){
   const html = `
     <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
       <div class="pin" style="background:${color};">
-        <div class="pin-inner"></div>
+        ${pinInner}
         ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
         ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
       </div>
@@ -1965,6 +2013,7 @@ function openNewSheet(latlng){
   editingPointId = null;
   pendingLatLng = latlng;
   pendingType = null;
+  setPendingParkingCategory('general');
   document.getElementById('ocrResultBox').style.display = 'none';
   document.getElementById('ocrSplitRow').style.display = 'none';
   document.getElementById('ocrResultText').value = '';
@@ -2024,6 +2073,7 @@ function openEditSheet(id){
   renderPhotoPreviewList();
 
   selectType(p.type); // ボタンの選択状態を既存の種類に合わせる（停車位置の選択肢もここで作られる）
+  setPendingParkingCategory(p.parkingCategory);
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
@@ -2041,6 +2091,8 @@ function selectType(type){
   populateParkingSelect(type);
   // 宅配BOXパスワードは配達先だけの項目（停車位置には不要）なので、種類に応じて出し分ける
   document.getElementById('boxPasswordWrap').style.display = (type === 'delivery') ? 'block' : 'none';
+  // 停車位置の種類（一般／商業施設／ガソリンスタンド）は停車位置を選んだ時だけ出す
+  document.getElementById('parkingCategoryWrap').style.display = (type === 'parking') ? 'block' : 'none';
   // フォーム全体の背景色を種類ごとに変え、スクロールしても色で常に判別できるようにする
   const sheetEl = document.querySelector('#newOverlay .sheet');
   sheetEl.classList.toggle('type-delivery', type === 'delivery');
@@ -2467,6 +2519,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.photos = pendingPhotos.slice();
       p.attention = document.getElementById('attnInput').checked;
       p.parkHere = (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false;
+      p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
       savedPointForOutline = p;
     }
@@ -2487,6 +2540,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       photos: pendingPhotos.slice(),
       attention: document.getElementById('attnInput').checked,
       parkHere: (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false,
+      parkingCategory: (pendingType === 'parking') ? pendingParkingCategory : null,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
       createdAt: Date.now(),
@@ -3820,10 +3874,40 @@ function escapeHtml(str){
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ---------- 住所を地図上で探す（登録済みの地点の検索とは別。OpenStreetMapの住所検索を利用） ----------
+document.getElementById('geocodeSearchBtn').addEventListener('click', async () => {
+  const query = document.getElementById('searchInput').value.trim();
+  const statusEl = document.getElementById('geocodeStatusText');
+  if (!query) {
+    statusEl.textContent = '住所を入力してから押してください。';
+    return;
+  }
+  statusEl.textContent = '探しています…';
+  try {
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(query);
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
+    if (!res.ok) throw new Error('取得に失敗しました');
+    const results = await res.json();
+    if (!results || results.length === 0) {
+      statusEl.textContent = '見つかりませんでした。住所の書き方を変えて試してみてください。';
+      return;
+    }
+    const { lat, lon } = results[0];
+    document.getElementById('searchOverlay').classList.remove('open');
+    map.setView([parseFloat(lat), parseFloat(lon)], 18);
+    statusEl.textContent = '';
+  } catch (e) {
+    console.error('住所検索エラー:', e);
+    statusEl.textContent = '住所を探せませんでした。電波の良い場所でもう一度試してください。';
+  }
+});
+
 document.getElementById('searchBtn').addEventListener('click', () => {
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
   document.getElementById('searchEmpty').style.display = 'none';
+  document.getElementById('geocodeStatusText').textContent = '';
   document.getElementById('searchOverlay').classList.add('open');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
 });
