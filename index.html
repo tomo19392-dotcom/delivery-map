@@ -54,6 +54,7 @@
   body.ui-hidden #hint{ display:none !important; }
   html[data-theme="dark"] #newOverlay .sheet.type-delivery{ background:#4a2c17; }
   html[data-theme="dark"] #newOverlay .sheet.type-parking{ background:#1e3a5f; }
+  html[data-theme="dark"] #newOverlay .sheet.type-landmark{ background:#3b2e5c; }
   /* 地図タイル自体を少し暗めに寄せる（白飛びを抑え、夜間の目の負担を減らす） */
   html[data-theme="dark"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
 
@@ -270,6 +271,7 @@
      フォーム全体の背景色で常時わかるようにする（文字を読まなくても一目で判断できる） */
   #newOverlay .sheet.type-delivery{ background:#fff7ed; }
   #newOverlay .sheet.type-parking{ background:#eff6ff; }
+  #newOverlay .sheet.type-landmark{ background:#f5f3ff; }
   #newOverlay .sheet.type-delivery input,
   #newOverlay .sheet.type-delivery textarea,
   #newOverlay .sheet.type-delivery select,
@@ -296,6 +298,14 @@
   }
   .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:#fff; box-shadow:0 2px 8px rgba(232,134,46,.35); }
   .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(79,160,214,.35); }
+  .type-btn.selected.landmark{ border-color:#8B5CF6; background:#8B5CF6; color:#fff; box-shadow:0 2px 8px rgba(139,92,246,.35); }
+
+  /* コンビニなどの目印：チェーンごとの色を左右で分けた丸いアイコンにする */
+  .landmark-badge{
+    width:28px; height:28px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 2px 6px rgba(0,0,0,.35); display:flex; overflow:hidden;
+  }
+  .landmark-badge .half{ flex:1; height:100%; }
 
   label.field-label{ display:block; font-size:12px; color:var(--sub); margin:12px 0 6px; font-weight:600; }
   textarea, input[type=file]{
@@ -337,6 +347,7 @@
     padding:4px 10px; border-radius:999px; margin-bottom:10px; }
   .detail-type.delivery{ background:#fff7ed; color:var(--orange); }
   .detail-type.parking{ background:#eff6ff; color:var(--blue); }
+  .detail-type.landmark{ background:#f5f3ff; color:#8B5CF6; }
   .detail-warn{ display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--red);
     background:#fef2f2; padding:4px 10px; border-radius:999px; margin-left:6px; font-weight:700; }
   #detailPhoto{ width:100%; border-radius:10px; margin:10px 0; display:none; }
@@ -461,6 +472,7 @@
 <div id="legend">
   <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
   <div class="row"><span class="dot" style="background:var(--blue)"></span>停車位置</div>
+  <div class="row"><span class="dot" style="background:#8B5CF6"></span>目印（コンビニ等）</div>
   <div class="row">📷 写真あり</div>
   <div class="row">⚠️ 注意地点</div>
   <div class="row" id="hideDoneRow" style="display:none; margin-top:4px; padding-top:4px; border-top:1px solid var(--line);">
@@ -607,6 +619,7 @@
         <label class="field-label" style="width:100%; margin:0 0 6px;">種類を選んでください</label>
         <div class="type-btn delivery" id="btnDelivery" data-type="delivery">📦 配達先</div>
         <div class="type-btn parking" id="btnParking" data-type="parking">🅿️ 停車位置</div>
+        <div class="type-btn landmark" id="btnLandmark" data-type="landmark">🏪 目印</div>
       </div>
     </div>
 
@@ -626,6 +639,11 @@
       <div id="parkingCategoryWrap" style="display:none;">
         <label class="field-label">停車位置の種類</label>
         <div class="corner-picker" id="parkingCategoryPicker" style="margin-bottom:16px;"></div>
+      </div>
+
+      <div id="landmarkCategoryWrap" style="display:none;">
+        <label class="field-label">目印の種類</label>
+        <div class="corner-picker" id="landmarkCategoryPicker" style="margin-bottom:16px;"></div>
       </div>
 
       <div id="linkedParkingWrap" style="display:none;">
@@ -1111,6 +1129,31 @@ function setPendingParkingCategory(category){
   document.querySelectorAll('#parkingCategoryPicker .style-btn').forEach(b =>
     b.classList.toggle('selected', b.dataset.category === pendingParkingCategory));
 }
+
+let pendingLandmarkCategory = 'familymart';
+function buildLandmarkCategoryPicker(){
+  const wrap = document.getElementById('landmarkCategoryPicker');
+  wrap.innerHTML = '';
+  Object.keys(LANDMARK_CATEGORIES).forEach(key => {
+    const cat = LANDMARK_CATEGORIES[key];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'style-btn';
+    btn.dataset.category = key;
+    btn.innerHTML = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%;
+      background:linear-gradient(to right, ${cat.colors[0]} 50%, ${cat.colors[1]} 50%); margin-right:4px; vertical-align:-1px;"></span>${cat.label}`;
+    btn.addEventListener('click', () => {
+      pendingLandmarkCategory = key;
+      wrap.querySelectorAll('.style-btn').forEach(b => b.classList.toggle('selected', b.dataset.category === key));
+    });
+    wrap.appendChild(btn);
+  });
+}
+function setPendingLandmarkCategory(category){
+  pendingLandmarkCategory = category || 'familymart';
+  document.querySelectorAll('#landmarkCategoryPicker .style-btn').forEach(b =>
+    b.classList.toggle('selected', b.dataset.category === pendingLandmarkCategory));
+}
 let pendingPhotos = []; // 複数枚の写真を扱う
 let selectedPointId = null;
 let parkingRelationLayer = null; // 「地図で位置関係を見る」で一時的に表示する線・マーカー
@@ -1233,6 +1276,15 @@ const PARKING_CATEGORIES = {
   other:       { emoji:'📍', label:'その他', pinColor:'#8B5CF6' } // 紫。ピン自体の色を変えて目立たせる
 };
 
+// コンビニなどの目印：実際のチェーンの色に近い2色を、丸いアイコンの左右に分けて表示する
+const LANDMARK_CATEGORIES = {
+  familymart:   { label:'ファミリーマート', colors:['#00A64C', '#FFFFFF'] },
+  seven_eleven: { label:'セブン-イレブン',   colors:['#EE1C25', '#00A64C'] },
+  lawson:       { label:'ローソン',         colors:['#0066CC', '#FFFFFF'] },
+  other_conv:   { label:'その他コンビニ',    colors:['#FFD400', '#DC143C'] }
+  // 飲食店は種類が定まったら追加する
+};
+
 // ---------- 画面焼き付き対策 ----------
 // スマホをホルダー等に固定して長時間同じ画面を表示し続ける使い方を想定し、
 // ヘッダーや四隅のボタン類の位置を数分おきに1〜2pxだけ、気づかれない範囲でずらす。
@@ -1336,6 +1388,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   buildStampBar();
   buildNoteTagsUI();
   buildParkingCategoryPicker();
+  buildLandmarkCategoryPicker();
   loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
   await loadPoints();
   await loadDrawings();
@@ -1617,6 +1670,10 @@ function initMap(){
 
   function fireLongPress(hit){
     if (hit.type === 'point') {
+      const marker = pointMarkerById[hit.id];
+      // 長押しで選ばれた間は、修整モードに切り替えなくてもそのままドラッグで動かせるようにする
+      // （詳細画面を閉じれば、そのまま指で位置を微調整できる。建物の輪郭がズレていた時の直しも兼ねる）
+      if (marker && marker.dragging) marker.dragging.enable();
       openDetailSheet(hit.id);
     } else if (hit.type === 'stamp') {
       const marker = stampMarkerById[hit.id];
@@ -1959,6 +2016,7 @@ let hideDoneEnabled = false;
 function renderAllMarkers(){
   markersLayer.clearLayers();
   buildingOutlineLayer.clearLayers();
+  pointMarkerById = {};
   points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
     .forEach(p => {
@@ -1984,16 +2042,32 @@ function addMarkerToMap(p){
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
   const displayName = p.name || p.nameKana || '';
   const nameLabel = (displayName && !p.buildingOutline) ? `<div class="pin-name-label">${escapeHtml(displayName)}</div>` : '';
-  const html = `
-    <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
-      <div class="pin" style="background:${color};">
-        ${pinInner}
-        ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
-        ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
-      </div>
-      ${nameLabel}
-    </div>`;
-  const icon = L.divIcon({ className:'', html, iconSize:[30, 30], iconAnchor:[15,30], popupAnchor:[0,-28] });
+
+  let icon;
+  if (p.type === 'landmark') {
+    // コンビニなどの目印は、ピンではなくチェーンの色で分かる丸いアイコンにする
+    const cat = LANDMARK_CATEGORIES[p.landmarkCategory] || LANDMARK_CATEGORIES.familymart;
+    const html = `
+      <div style="position:relative; width:28px; height:28px;">
+        <div class="landmark-badge">
+          <div class="half" style="background:${cat.colors[0]};"></div>
+          <div class="half" style="background:${cat.colors[1]};"></div>
+        </div>
+        ${nameLabel}
+      </div>`;
+    icon = L.divIcon({ className:'', html, iconSize:[28, 28], iconAnchor:[14,14], popupAnchor:[0,-14] });
+  } else {
+    const html = `
+      <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
+        <div class="pin" style="background:${color};">
+          ${pinInner}
+          ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
+          ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
+        </div>
+        ${nameLabel}
+      </div>`;
+    icon = L.divIcon({ className:'', html, iconSize:[30, 30], iconAnchor:[15,30], popupAnchor:[0,-28] });
+  }
   const marker = L.marker([p.lat, p.lng], { icon, draggable: (currentMode === 'edit') }).addTo(markersLayer);
   marker.on('click', () => {
     if (currentMode === 'view' || currentMode === 'edit') openDetailSheet(p.id);
@@ -2010,6 +2084,7 @@ function addMarkerToMap(p){
     await savePoints();
     if (p.name || p.nameKana) tryAttachBuildingOutline(p);
   });
+  pointMarkerById[p.id] = marker;
   // 長押しの検出はcontainer側(findHitObject/fireLongPress)でまとめて行う
 }
 function formatShortDate(dateStr){
@@ -2065,6 +2140,7 @@ function openNewSheet(latlng){
   pendingLatLng = latlng;
   pendingType = null;
   setPendingParkingCategory('general');
+  setPendingLandmarkCategory('familymart');
   document.getElementById('ocrResultBox').style.display = 'none';
   document.getElementById('ocrSplitRow').style.display = 'none';
   document.getElementById('ocrResultText').value = '';
@@ -2091,8 +2167,10 @@ function openNewSheet(latlng){
   renderPhotoPreviewList();
   document.getElementById('btnDelivery').classList.remove('selected');
   document.getElementById('btnParking').classList.remove('selected');
-  document.querySelector('#newOverlay .sheet').classList.remove('type-delivery', 'type-parking');
+  document.getElementById('btnLandmark').classList.remove('selected');
+  document.querySelector('#newOverlay .sheet').classList.remove('type-delivery', 'type-parking', 'type-landmark');
   document.getElementById('linkedParkingWrap').style.display = 'none';
+  document.getElementById('landmarkCategoryWrap').style.display = 'none';
   document.getElementById('boxPasswordWrap').style.display = 'none'; // 種類を選ぶまでは、配達先専用の項目は隠しておく
   document.getElementById('typeRow').style.display = pendingParkingLinkTargetId ? 'none' : 'flex';
   if (pendingParkingLinkTargetId) selectType('parking'); // 紐づけ待ちのときは種類を固定する
@@ -2127,6 +2205,7 @@ function openEditSheet(id){
 
   selectType(p.type); // ボタンの選択状態を既存の種類に合わせる（停車位置の選択肢もここで作られる）
   setPendingParkingCategory(p.parkingCategory);
+  setPendingLandmarkCategory(p.landmarkCategory);
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
@@ -2141,18 +2220,23 @@ function selectType(type){
   pendingType = type;
   document.getElementById('btnDelivery').classList.toggle('selected', type === 'delivery');
   document.getElementById('btnParking').classList.toggle('selected', type === 'parking');
+  document.getElementById('btnLandmark').classList.toggle('selected', type === 'landmark');
   populateParkingSelect(type);
-  // 宅配BOXパスワードは配達先だけの項目（停車位置には不要）なので、種類に応じて出し分ける
+  // 宅配BOXパスワードは配達先だけの項目（停車位置・目印には不要）なので、種類に応じて出し分ける
   document.getElementById('boxPasswordWrap').style.display = (type === 'delivery') ? 'block' : 'none';
   // 停車位置の種類（一般／商業施設／ガソリンスタンド）は停車位置を選んだ時だけ出す
   document.getElementById('parkingCategoryWrap').style.display = (type === 'parking') ? 'block' : 'none';
+  // 目印の種類（コンビニ各社など）は目印を選んだ時だけ出す
+  document.getElementById('landmarkCategoryWrap').style.display = (type === 'landmark') ? 'block' : 'none';
   // フォーム全体の背景色を種類ごとに変え、スクロールしても色で常に判別できるようにする
   const sheetEl = document.querySelector('#newOverlay .sheet');
   sheetEl.classList.toggle('type-delivery', type === 'delivery');
   sheetEl.classList.toggle('type-parking', type === 'parking');
+  sheetEl.classList.toggle('type-landmark', type === 'landmark');
   // 今どちらの登録画面かを見出しでもはっきりさせる（編集時・紐づけ待ち時は専用の見出しを優先する）
   if (!editingPointId && !pendingParkingLinkTargetId) {
-    document.getElementById('newSheetTitle').textContent = type === 'delivery' ? '📦 配達先を登録' : '🅿️ 停車位置を登録';
+    const titles = { delivery:'📦 配達先を登録', parking:'🅿️ 停車位置を登録', landmark:'🏪 目印を登録' };
+    document.getElementById('newSheetTitle').textContent = titles[type] || '地点を登録';
   }
 }
 
@@ -2603,6 +2687,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.attention = document.getElementById('attnInput').checked;
       p.parkHere = (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false;
       p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
+      p.landmarkCategory = (pendingType === 'landmark') ? pendingLandmarkCategory : null;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
       savedPointForOutline = p;
     }
@@ -2625,6 +2710,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       attention: document.getElementById('attnInput').checked,
       parkHere: (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false,
       parkingCategory: (pendingType === 'parking') ? pendingParkingCategory : null,
+      landmarkCategory: (pendingType === 'landmark') ? pendingLandmarkCategory : null,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
       createdAt: Date.now(),
@@ -2870,8 +2956,8 @@ function openDetailSheet(id){
   clearParkingRelationLayer();
   clearRouteHighlight();
 
-  const typeLabel = p.type === 'delivery' ? '配達先' : '停車位置';
-  const typeClass = p.type === 'delivery' ? 'delivery' : 'parking';
+  const typeLabel = typeLabelOf(p);
+  const typeClass = p.type === 'delivery' ? 'delivery' : (p.type === 'landmark' ? 'landmark' : 'parking');
   document.getElementById('detailTypeWrap').innerHTML = `
     <span class="detail-type ${typeClass}">${typeLabel}</span>
     ${p.attention ? '<span class="detail-warn">⚠️ 注意地点</span>' : ''}
@@ -3533,6 +3619,7 @@ function renderAllStamps(){
 let stampMarkers = []; // モード切替時にドラッグの可否をまとめて切り替えるための一覧
 
 let stampMarkerById = {};
+let pointMarkerById = {};
 
 function addStampToMap(s){
   const t = STAMP_TYPES[s.type] || STAMP_TYPES.caution;
@@ -3930,7 +4017,11 @@ document.getElementById('hideDoneToggle').addEventListener('change', (e) => {
 document.getElementById('undoBtn').addEventListener('click', undoLastAction);
 
 // ---------- 検索 ----------
-function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位置'; }
+function typeLabelOf(p){
+  if (p.type === 'delivery') return '配達先';
+  if (p.type === 'landmark') return '目印';
+  return '停車位置';
+}
 
 function runSearch(query){
   const resultsEl = document.getElementById('searchResults');
@@ -3954,7 +4045,7 @@ function runSearch(query){
       const memoPreview = p.memo ? p.memo.slice(0, 40) : '';
       const tagChips = sortTagsByGroup(p.tags).map(id => `<span class="note-tag-chip" style="font-size:10px; padding:2px 7px;">${noteTagLabel(id)}</span>`).join('');
       row.innerHTML = `
-        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'};">
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : (p.type === 'landmark' ? '#8B5CF6' : 'var(--blue)')};">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
         </div>
         ${(p.name || p.nameKana) ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px;">${escapeHtml(p.name || p.nameKana)}</div>` : ''}
