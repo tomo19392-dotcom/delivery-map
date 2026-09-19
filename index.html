@@ -465,6 +465,12 @@
 <div id="hint" style="position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:600;">
   地図をタップして地点を登録できます
 </div>
+<div id="batchModeBanner" style="display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:700;
+  background:rgba(37,99,235,.95); color:#fff; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
+  align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,.25);">
+  <span id="batchModeBannerText">🚚 本便のみ表示中</span>
+  <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">解除</button>
+</div>
 <div id="legend">
   <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
   <div class="row"><span class="dot" style="background:var(--blue)"></span>停車位置</div>
@@ -806,6 +812,14 @@
     <h2>🔍 地点を検索</h2>
     <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
       style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+    <div id="batchBar" style="display:none; align-items:center; justify-content:space-between; gap:8px;
+      background:var(--bg); border-radius:10px; padding:8px 10px; margin-bottom:10px; font-size:12px;">
+      <span id="batchCountText">🚚 今回の便：0件選択中</span>
+      <div style="display:flex; gap:6px;">
+        <button type="button" class="copy-btn" id="batchClearBtn" style="font-size:11px;">クリア</button>
+        <button type="button" class="btn btn-primary" id="batchApplyBtn" style="padding:6px 10px; font-size:11px;">地図に表示</button>
+      </div>
+    </div>
     <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
     <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
       見つかりませんでした
@@ -1984,12 +1998,16 @@ function updateCount(){
 
 // ---------- マーカー描画 ----------
 let hideDoneEnabled = false;
+// 「今回の便」機能：検索で選んだ地点だけを地図に表示し、ルートを考えやすくする
+let currentBatchIds = [];
+let batchModeActive = false;
 function renderAllMarkers(){
   markersLayer.clearLayers();
   buildingOutlineLayer.clearLayers();
   pointMarkerById = {};
   points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
+    .filter(p => !batchModeActive || currentBatchIds.includes(p.id))
     .forEach(p => {
       addMarkerToMap(p);
       if (p.buildingOutline) renderBuildingOutlineForPoint(p);
@@ -3802,6 +3820,9 @@ document.getElementById('deleteAllYesBtn').addEventListener('click', async () =>
   drawings = [];
   stamps = [];
   trash = [];
+  currentBatchIds = [];
+  batchModeActive = false;
+  document.getElementById('batchModeBanner').style.display = 'none';
   await savePoints();
   await saveDrawings();
   await saveStamps();
@@ -4005,6 +4026,42 @@ document.getElementById('undoBtn').addEventListener('click', undoLastAction);
 // ---------- 検索 ----------
 function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位置'; }
 
+// ---------- 「今回の便」機能：複数の地点を選んで、それだけを地図に表示する ----------
+function toggleBatchPoint(id){
+  const i = currentBatchIds.indexOf(id);
+  if (i === -1) currentBatchIds.push(id); else currentBatchIds.splice(i, 1);
+  updateBatchBar();
+}
+function updateBatchBar(){
+  const bar = document.getElementById('batchBar');
+  const count = currentBatchIds.length;
+  bar.style.display = count > 0 ? 'flex' : 'none';
+  document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中`;
+}
+document.getElementById('batchClearBtn').addEventListener('click', () => {
+  currentBatchIds = [];
+  updateBatchBar();
+  runSearch(document.getElementById('searchInput').value);
+});
+document.getElementById('batchApplyBtn').addEventListener('click', () => {
+  if (currentBatchIds.length === 0) return;
+  batchModeActive = true;
+  document.getElementById('searchOverlay').classList.remove('open');
+  renderAllMarkers();
+  // 選んだ地点がすべて画面に収まるよう、地図の位置・拡大率を自動調整する
+  const batchPoints = points.filter(p => currentBatchIds.includes(p.id));
+  if (batchPoints.length > 0) {
+    map.fitBounds(L.latLngBounds(batchPoints.map(p => [p.lat, p.lng])), { padding:[50,50], maxZoom:18 });
+  }
+  document.getElementById('batchModeBannerText').textContent = `🚚 本便のみ表示中（${currentBatchIds.length}件）`;
+  document.getElementById('batchModeBanner').style.display = 'flex';
+});
+document.getElementById('batchModeOffBtn').addEventListener('click', () => {
+  batchModeActive = false;
+  document.getElementById('batchModeBanner').style.display = 'none';
+  renderAllMarkers();
+});
+
 function runSearch(query){
   const resultsEl = document.getElementById('searchResults');
   const emptyEl = document.getElementById('searchEmpty');
@@ -4023,18 +4080,27 @@ function runSearch(query){
     .sort((a,b) => b.createdAt - a.createdAt)
     .forEach(p => {
       const row = document.createElement('div');
-      row.style.cssText = 'padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--paper);';
+      row.style.cssText = 'padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--paper); position:relative;';
       const memoPreview = p.memo ? p.memo.slice(0, 40) : '';
       const tagChips = sortTagsByGroup(p.tags).map(id => `<span class="note-tag-chip" style="font-size:10px; padding:2px 7px;">${noteTagLabel(id)}</span>`).join('');
+      const inBatch = currentBatchIds.includes(p.id);
       row.innerHTML = `
-        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'};">
+        <button type="button" class="batch-add-btn" data-id="${p.id}" style="position:absolute; top:8px; right:8px;
+          width:26px; height:26px; border-radius:50%; border:none; font-size:13px;
+          background:${inBatch ? 'var(--blue)' : '#f3f4f6'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? '✓' : '＋'}</button>
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'}; padding-right:30px;">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
         </div>
-        ${(p.name || p.nameKana) ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px;">${escapeHtml(p.name || p.nameKana)}</div>` : ''}
+        ${(p.name || p.nameKana) ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px; padding-right:30px;">${escapeHtml(p.name || p.nameKana)}</div>` : ''}
         ${p.address ? `<div style="font-size:12px; color:var(--sub); margin-top:1px;">📍 ${escapeHtml(p.address)}</div>` : ''}
         ${tagChips ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">${tagChips}</div>` : ''}
         ${memoPreview ? `<div style="font-size:13px; color:var(--ink); margin-top:3px;">${escapeHtml(memoPreview)}</div>` : ''}
       `;
+      row.querySelector('.batch-add-btn').addEventListener('click', (evt) => {
+        evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
+        toggleBatchPoint(p.id);
+        runSearch(document.getElementById('searchInput').value); // ボタンの見た目を更新するため再描画する
+      });
       row.addEventListener('click', () => {
         document.getElementById('searchOverlay').classList.remove('open');
         map.setView([p.lat, p.lng], Math.max(map.getZoom(), 18));
@@ -4082,6 +4148,7 @@ document.getElementById('searchBtn').addEventListener('click', () => {
   document.getElementById('searchResults').innerHTML = '';
   document.getElementById('searchEmpty').style.display = 'none';
   document.getElementById('geocodeStatusText').textContent = '';
+  updateBatchBar(); // 前回選び途中の「便」があれば、そのまま引き継いで表示する
   document.getElementById('searchOverlay').classList.add('open');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
 });
