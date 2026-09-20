@@ -2277,18 +2277,29 @@ function getKuromojiTokenizer(){
   if (kuromojiTokenizer) return Promise.resolve(kuromojiTokenizer);
   if (kuromojiLoadPromise) return kuromojiLoadPromise;
   kuromojiLoadPromise = new Promise((resolve, reject) => {
+    // 辞書データの読み込みが裏で失敗して無反応のまま固まる、ということが無いよう、
+    // 一定時間で必ず失敗として扱い、エラーを表示できるようにする
+    const timeoutId = setTimeout(() => {
+      reject(new Error('準備に時間がかかりすぎています。電波の良い場所でもう一度試してください。'));
+    }, 25000);
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js';
     script.onload = () => {
       kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((err, tokenizer) => {
+        clearTimeout(timeoutId);
         if (err) { reject(err); return; }
         kuromojiTokenizer = tokenizer;
         resolve(tokenizer);
       });
     };
-    script.onerror = () => reject(new Error('読み方の自動入力機能の準備に失敗しました。電波の良い場所でもう一度試してください。'));
+    script.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('読み方の自動入力機能の準備に失敗しました。電波の良い場所でもう一度試してください。'));
+    };
     document.head.appendChild(script);
   });
+  // 失敗した場合は、次にもう一度ボタンを押した時に再挑戦できるよう、失敗の記録を残さない
+  kuromojiLoadPromise.catch(() => { kuromojiLoadPromise = null; });
   return kuromojiLoadPromise;
 }
 function katakanaToHiragana(str){
@@ -2311,7 +2322,7 @@ document.getElementById('autoKanaBtn').addEventListener('click', async () => {
     statusEl.textContent = '自動入力しました。地名など読み方が違う場合があるので、必ず確認してください。';
   } catch (e) {
     console.error('ふりがな自動生成エラー:', e);
-    statusEl.textContent = '自動入力に失敗しました。手で入力してください。';
+    statusEl.textContent = (e && e.message) ? e.message : '自動入力に失敗しました。手で入力してください。';
   }
 });
 
