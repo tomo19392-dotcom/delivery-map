@@ -638,9 +638,13 @@
       <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
-      <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+        <label class="field-label" style="margin:0;">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
+        <button type="button" id="autoKanaBtn" class="copy-btn" style="font-size:11px; white-space:nowrap; margin-left:8px;">🔤 自動入力</button>
+      </div>
       <input type="text" id="addressKanaInput" placeholder="例）うちさんげ"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      <div id="autoKanaStatus" style="font-size:11px; color:var(--sub); margin-top:2px;"></div>
 
       <div id="parkingCategoryWrap" style="display:none;">
         <label class="field-label">停車位置の種類</label>
@@ -2264,6 +2268,53 @@ document.getElementById('boxPasswordInput').addEventListener('input', (e) => {
   const pos = e.target.selectionStart;
   e.target.value = e.target.value.toLowerCase();
   e.target.setSelectionRange(pos, pos); // カーソル位置がずれないようにする
+});
+
+// ---------- 住所の漢字から、ふりがなを自動生成する（kuromoji.js。完全に端末内・無料で動く） ----------
+// 地名は特殊な読み方をすることがあるため、100%正確とは限らない。
+// あくまで下書きとして自動入力し、必ず目で確認・修正してもらう前提で使う。
+let kuromojiTokenizer = null;
+let kuromojiLoadPromise = null;
+function getKuromojiTokenizer(){
+  if (kuromojiTokenizer) return Promise.resolve(kuromojiTokenizer);
+  if (kuromojiLoadPromise) return kuromojiLoadPromise;
+  kuromojiLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js';
+    script.onload = () => {
+      kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((err, tokenizer) => {
+        if (err) { reject(err); return; }
+        kuromojiTokenizer = tokenizer;
+        resolve(tokenizer);
+      });
+    };
+    script.onerror = () => reject(new Error('読み方の自動入力機能の準備に失敗しました。電波の良い場所でもう一度試してください。'));
+    document.head.appendChild(script);
+  });
+  return kuromojiLoadPromise;
+}
+function katakanaToHiragana(str){
+  return str.replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+document.getElementById('autoKanaBtn').addEventListener('click', async () => {
+  const text = document.getElementById('addressInput').value.trim();
+  const statusEl = document.getElementById('autoKanaStatus');
+  if (!text) {
+    statusEl.textContent = '先に住所を入力してください。';
+    return;
+  }
+  statusEl.textContent = '準備中…（初回は辞書の読み込みに少し時間がかかります）';
+  try {
+    const tokenizer = await getKuromojiTokenizer();
+    statusEl.textContent = '読み方を調べています…';
+    const tokens = tokenizer.tokenize(text);
+    const reading = tokens.map(t => t.reading || t.surface_form).join('');
+    document.getElementById('addressKanaInput').value = katakanaToHiragana(reading);
+    statusEl.textContent = '自動入力しました。地名など読み方が違う場合があるので、必ず確認してください。';
+  } catch (e) {
+    console.error('ふりがな自動生成エラー:', e);
+    statusEl.textContent = '自動入力に失敗しました。手で入力してください。';
+  }
 });
 
 // ---------- 写真から住所・名前を読み取る（OCR。完全に端末内・無料で動くTesseract.jsを使用） ----------
