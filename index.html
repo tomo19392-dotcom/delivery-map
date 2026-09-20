@@ -1557,6 +1557,7 @@ function initMap(){
   });
 
   map.on('click', (e) => {
+    if (searchResultMarker) { map.removeLayer(searchResultMarker); searchResultMarker = null; } // 地図を操作したら検索の目印は消す
     if (currentMode === 'point') {
       if (pendingPointMoveTargetId) {
         movePointTo(pendingPointMoveTargetId, e.latlng);
@@ -4126,6 +4127,25 @@ function escapeHtml(str){
 }
 
 // ---------- 住所を地図上で探す（登録済みの地点の検索とは別。OpenStreetMapの住所検索を利用） ----------
+// 地図が移動するだけだとどの建物か分かりにくいため、探した場所に一時的な目印を立てる。
+// これは登録される地点ではないので、次に検索するか地図をタップすると消える。
+let searchResultMarker = null;
+function showSearchResultMarker(lat, lng){
+  if (searchResultMarker) { map.removeLayer(searchResultMarker); searchResultMarker = null; }
+  const html = `
+    <div style="position:relative; width:34px; height:34px;">
+      <div style="position:absolute; top:0; left:0; width:34px; height:34px; border-radius:50%;
+        background:rgba(220,38,38,.35); animation:pulse 1.4s ease-out infinite;"></div>
+      <div style="position:absolute; top:9px; left:9px; width:16px; height:16px; border-radius:50%;
+        background:#DC2626; border:3px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>
+    </div>`;
+  const icon = L.divIcon({ className:'', html, iconSize:[34,34], iconAnchor:[17,17] });
+  searchResultMarker = L.marker([lat, lng], { icon, interactive:false, zIndexOffset:3000 }).addTo(map);
+}
+document.getElementById('searchBtn').addEventListener('click', () => {
+  if (searchResultMarker) { map.removeLayer(searchResultMarker); searchResultMarker = null; }
+});
+
 document.getElementById('geocodeSearchBtn').addEventListener('click', async () => {
   const query = document.getElementById('searchInput').value.trim();
   const statusEl = document.getElementById('geocodeStatusText');
@@ -4146,6 +4166,7 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
         const [lon, lat] = gsiResults[0].geometry.coordinates; // 国土地理院は[経度,緯度]の順
         document.getElementById('searchOverlay').classList.remove('open');
         map.setView([lat, lon], 18);
+        showSearchResultMarker(lat, lon);
         statusEl.textContent = '';
         return;
       }
@@ -4159,6 +4180,7 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
         const { lat, lon } = osmResults[0];
         document.getElementById('searchOverlay').classList.remove('open');
         map.setView([parseFloat(lat), parseFloat(lon)], 18);
+        showSearchResultMarker(parseFloat(lat), parseFloat(lon));
         statusEl.textContent = '';
         return;
       }
