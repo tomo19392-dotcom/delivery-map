@@ -510,6 +510,8 @@
 
 <!-- 元に戻す・検索・設定 -->
 <div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+  <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:#fff;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む</button>
   <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
   <button id="searchBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
@@ -634,6 +636,10 @@
 
       <label class="field-label">住所（任意）</label>
       <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
+      <input type="text" id="addressKanaInput" placeholder="例）うちさんげ"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <div id="parkingCategoryWrap" style="display:none;">
@@ -2144,6 +2150,7 @@ function openNewSheet(latlng){
   document.getElementById('nameKanaInput').value = '';
   setPendingTags([]);
   document.getElementById('addressInput').value = '';
+  document.getElementById('addressKanaInput').value = '';
   document.getElementById('memoInput').value = '';
   document.getElementById('boxPasswordInput').value = '';
   document.getElementById('attnInput').checked = false;
@@ -2182,6 +2189,7 @@ function openEditSheet(id){
   document.getElementById('nameKanaInput').value = p.nameKana || '';
   setPendingTags(p.tags);
   document.getElementById('addressInput').value = p.address || '';
+  document.getElementById('addressKanaInput').value = p.addressKana || '';
   document.getElementById('memoInput').value = p.memo || '';
   document.getElementById('boxPasswordInput').value = p.boxPassword || '';
   document.getElementById('attnInput').checked = !!p.attention;
@@ -2661,6 +2669,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.name = document.getElementById('nameInput').value.trim();
       p.nameKana = document.getElementById('nameKanaInput').value.trim();
       p.address = document.getElementById('addressInput').value.trim();
+      p.addressKana = document.getElementById('addressKanaInput').value.trim();
       p.memo = document.getElementById('memoInput').value.trim();
       p.tags = sortTagsByGroup(pendingTags);
       p.boxPassword = document.getElementById('boxPasswordInput').value.trim();
@@ -2683,6 +2692,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       name: document.getElementById('nameInput').value.trim(),
       nameKana: document.getElementById('nameKanaInput').value.trim(),
       address: document.getElementById('addressInput').value.trim(),
+      addressKana: document.getElementById('addressKanaInput').value.trim(),
       memo: document.getElementById('memoInput').value.trim(),
       tags: sortTagsByGroup(pendingTags),
       boxPassword: document.getElementById('boxPasswordInput').value.trim(),
@@ -4070,7 +4080,7 @@ function runSearch(query){
 
   const matched = q === '' ? [] : points.filter(p => {
     const tagText = (p.tags || []).map(noteTagLabel).join(' ');
-    const haystack = [p.name, p.nameKana, p.address, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
+    const haystack = [p.name, p.nameKana, p.address, p.addressKana, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
     return haystack.includes(q);
   });
 
@@ -4125,25 +4135,42 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
   }
   statusEl.textContent = '探しています…';
   try {
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(query);
-    const res = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
-    if (!res.ok) throw new Error('取得に失敗しました');
-    const results = await res.json();
-    if (!results || results.length === 0) {
-      statusEl.textContent = '見つかりませんでした。住所の書き方を変えて試してみてください。';
-      return;
+    // 国土地理院（日本の公式機関）の住所検索を優先して使う。
+    // 以前使っていたOSM系の検索は、日本の細かい住所（丁目・番地など）に弱く、
+    // 見つからないことが多かったための変更。
+    const gsiUrl = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(query);
+    const gsiRes = await fetch(gsiUrl);
+    if (gsiRes.ok) {
+      const gsiResults = await gsiRes.json();
+      if (Array.isArray(gsiResults) && gsiResults.length > 0) {
+        const [lon, lat] = gsiResults[0].geometry.coordinates; // 国土地理院は[経度,緯度]の順
+        document.getElementById('searchOverlay').classList.remove('open');
+        map.setView([lat, lon], 18);
+        statusEl.textContent = '';
+        return;
+      }
     }
-    const { lat, lon } = results[0];
-    document.getElementById('searchOverlay').classList.remove('open');
-    map.setView([parseFloat(lat), parseFloat(lon)], 18);
-    statusEl.textContent = '';
+    // 国土地理院で見つからない場合だけ、OSM系の検索も念のため試す
+    const osmUrl = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(query);
+    const osmRes = await fetch(osmUrl, { headers: { 'Accept-Language': 'ja' } });
+    if (osmRes.ok) {
+      const osmResults = await osmRes.json();
+      if (osmResults && osmResults.length > 0) {
+        const { lat, lon } = osmResults[0];
+        document.getElementById('searchOverlay').classList.remove('open');
+        map.setView([parseFloat(lat), parseFloat(lon)], 18);
+        statusEl.textContent = '';
+        return;
+      }
+    }
+    statusEl.textContent = '見つかりませんでした。住所の書き方を変えて試してみてください。';
   } catch (e) {
     console.error('住所検索エラー:', e);
     statusEl.textContent = '住所を探せませんでした。電波の良い場所でもう一度試してください。';
   }
 });
 
-document.getElementById('searchBtn').addEventListener('click', () => {
+function openSearchOverlay(){
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
   document.getElementById('searchEmpty').style.display = 'none';
@@ -4151,7 +4178,9 @@ document.getElementById('searchBtn').addEventListener('click', () => {
   updateBatchBar(); // 前回選び途中の「便」があれば、そのまま引き継いで表示する
   document.getElementById('searchOverlay').classList.add('open');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
-});
+}
+document.getElementById('searchBtn').addEventListener('click', openSearchOverlay);
+document.getElementById('batchQuickBtn').addEventListener('click', openSearchOverlay);
 document.getElementById('searchInput').addEventListener('input', (e) => runSearch(e.target.value));
 document.getElementById('closeSearchBtn').addEventListener('click', () => {
   document.getElementById('searchOverlay').classList.remove('open');
