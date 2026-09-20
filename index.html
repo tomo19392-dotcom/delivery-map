@@ -638,13 +638,11 @@
       <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
-        <label class="field-label" style="margin:0;">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
-        <button type="button" id="autoKanaBtn" class="copy-btn" style="font-size:11px; white-space:nowrap; margin-left:8px;">🔤 自動入力</button>
-      </div>
+      <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
       <input type="text" id="addressKanaInput" placeholder="例）うちさんげ"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
-      <div id="autoKanaStatus" style="font-size:11px; color:var(--sub); margin-top:2px;"></div>
+      <button type="button" id="autoKanaBtn" class="copy-btn" style="margin-top:6px; font-size:12px;">🔤 住所からふりがなを自動入力</button>
+      <div id="autoKanaStatus" style="font-size:11px; color:var(--sub); margin-top:4px;"></div>
 
       <div id="parkingCategoryWrap" style="display:none;">
         <label class="field-label">停車位置の種類</label>
