@@ -467,7 +467,7 @@
 </div>
 <div id="batchModeBanner" style="display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:700;
   background:rgba(37,99,235,.95); color:#fff; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
-  align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,.25);">
+  align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; max-width:92vw; box-shadow:0 2px 8px rgba(0,0,0,.25);">
   <span id="batchModeBannerText">🚚 本便のみ表示中</span>
   <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">🗺️ ルートを開く</button>
   <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">解除</button>
@@ -729,13 +729,15 @@
     <div id="detailTypeWrap"></div>
 
     <div style="margin-top:6px;">
-      <div class="info-row" id="detailAddressRow" style="display:none;">
+      <div class="info-row" id="detailAddressRow" style="display:none; flex-wrap:wrap;">
         <div style="flex:1; min-width:0;">
           <div class="info-row-label">📍 住所</div>
           <div class="info-row-value" id="detailAddress"></div>
         </div>
-        <button class="copy-btn" id="copyAddressBtn">📋 コピー</button>
-        <button class="copy-btn" id="openGoogleMapsBtn" style="margin-left:6px;">🗺️ Google Maps</button>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="copy-btn" id="copyAddressBtn">📋 コピー</button>
+          <button class="copy-btn" id="openGoogleMapsBtn">🗺️ Google Maps</button>
+        </div>
       </div>
 
       <div class="info-row" id="detailParkingRow" style="display:none;">
@@ -820,7 +822,7 @@
     <h2>🔍 地点を検索</h2>
     <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
       style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
-    <div id="batchBar" style="display:none; align-items:center; justify-content:space-between; gap:8px;
+    <div id="batchBar" style="display:none; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
       background:var(--bg); border-radius:10px; padding:8px 10px; margin-bottom:10px; font-size:12px;">
       <span id="batchCountText">🚚 今回の便：0件選択中</span>
       <div style="display:flex; gap:6px;">
