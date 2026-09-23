@@ -512,7 +512,7 @@
 <!-- 元に戻す・検索・設定 -->
 <div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
   <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:#fff;
-    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む</button>
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む<span id="batchQuickCount" style="display:none; margin-left:4px; background:#fff; color:var(--blue); border-radius:999px; padding:1px 6px; font-size:11px;"></span></button>
   <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
   <button id="searchBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
@@ -726,6 +726,7 @@
     <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
     <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
     <button type="button" id="movePointBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">📍 この地点を移動する</button>
+    <button type="button" id="addToBatchBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">🚚 便に追加</button>
     <div id="detailTypeWrap"></div>
 
     <div style="margin-top:6px;">
@@ -3004,6 +3005,18 @@ function openDetailSheet(id){
     alert('地図をタップして、新しい位置を指定してください。');
   };
 
+  // 地図上の地点をひとつひとつタップして、検索しなくても便に追加できるようにする
+  const addToBatchBtn = document.getElementById('addToBatchBtn');
+  function refreshAddToBatchBtn(){
+    const inBatch = currentBatchIds.includes(p.id);
+    addToBatchBtn.textContent = inBatch ? '✓ 便から外す' : '🚚 便に追加';
+  }
+  refreshAddToBatchBtn();
+  addToBatchBtn.onclick = () => {
+    toggleBatchPoint(p.id);
+    refreshAddToBatchBtn();
+  };
+
   const addressRow = document.getElementById('detailAddressRow');
   if (p.address) {
     document.getElementById('detailAddress').textContent = p.address;
@@ -4061,6 +4074,9 @@ function updateBatchBar(){
   const count = currentBatchIds.length;
   bar.style.display = count > 0 ? 'flex' : 'none';
   document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中`;
+  const badge = document.getElementById('batchQuickCount');
+  badge.style.display = count > 0 ? 'inline-block' : 'none';
+  badge.textContent = count;
 }
 document.getElementById('batchClearBtn').addEventListener('click', () => {
   currentBatchIds = [];
