@@ -469,6 +469,7 @@
   background:rgba(37,99,235,.95); color:#fff; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
   align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,.25);">
   <span id="batchModeBannerText">🚚 本便のみ表示中</span>
+  <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">🗺️ ルートを開く</button>
   <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">解除</button>
 </div>
 <div id="legend">
@@ -734,6 +735,7 @@
           <div class="info-row-value" id="detailAddress"></div>
         </div>
         <button class="copy-btn" id="copyAddressBtn">📋 コピー</button>
+        <button class="copy-btn" id="openGoogleMapsBtn" style="margin-left:6px;">🗺️ Google Maps</button>
       </div>
 
       <div class="info-row" id="detailParkingRow" style="display:none;">
@@ -3167,6 +3169,12 @@ document.getElementById('copyAddressBtn').addEventListener('click', (e) => {
   const p = points.find(pt => pt.id === selectedPointId);
   if (p) copyTextWithFeedback(p.address, e.target);
 });
+document.getElementById('openGoogleMapsBtn').addEventListener('click', () => {
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (!p) return;
+  // 緯度経度を使うことで、住所の表記ゆれに関わらず正確にその場所へ飛べるようにする
+  window.open(`https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`, '_blank');
+});
 document.getElementById('copyBoxPasswordBtn').addEventListener('click', (e) => {
   const p = points.find(pt => pt.id === selectedPointId);
   if (p) copyTextWithFeedback(p.boxPassword, e.target);
@@ -4071,6 +4079,33 @@ document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
   renderAllMarkers();
+});
+document.getElementById('batchRouteBtn').addEventListener('click', () => {
+  // 選んだ地点の順番のまま、Google Mapsのルート案内へ渡す（経由地として全て含める）
+  const batchPoints = currentBatchIds
+    .map(id => points.find(p => p.id === id))
+    .filter(Boolean);
+  if (batchPoints.length === 0) return;
+
+  const coords = batchPoints.map(p => `${p.lat},${p.lng}`);
+  let origin, destination, waypoints;
+  if (myMarker) {
+    // 現在地が分かっていれば、そこを出発地にする
+    const myLatLng = myMarker.getLatLng();
+    origin = `${myLatLng.lat},${myLatLng.lng}`;
+    destination = coords[coords.length - 1];
+    waypoints = coords.slice(0, -1);
+  } else {
+    origin = coords[0];
+    destination = coords[coords.length - 1];
+    waypoints = coords.slice(1, -1);
+  }
+  // Google Mapsの経由地は10件程度までしか渡せないため、超える場合は先頭側を優先して切り詰める
+  if (waypoints.length > 9) waypoints = waypoints.slice(0, 9);
+
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  if (waypoints.length > 0) url += `&waypoints=${waypoints.join('|')}`;
+  window.open(url, '_blank');
 });
 
 function runSearch(query){
