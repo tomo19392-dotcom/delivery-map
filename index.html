@@ -3174,10 +3174,10 @@ document.getElementById('copyAddressBtn').addEventListener('click', (e) => {
 document.getElementById('openGoogleMapsBtn').addEventListener('click', () => {
   const p = points.find(pt => pt.id === selectedPointId);
   if (!p) return;
-  // 「緯度,経度(ラベル)」の形式で渡すと、位置は正確なまま、表示上は名前や住所が出るようになる
-  const label = p.name || p.nameKana || p.address || '登録地点';
-  const query = `${p.lat},${p.lng}(${label})`;
-  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+  // 座標＋名前ラベルの表示は、新しい書き方(api=1)では上手く効かなかったため、
+  // 昔からある書き方(q=緯度,経度(ラベル))に変更する
+  const label = encodeURIComponent(p.name || p.nameKana || p.address || '登録地点');
+  window.open(`https://www.google.com/maps?q=${p.lat},${p.lng}(${label})`, '_blank');
 });
 document.getElementById('copyBoxPasswordBtn').addEventListener('click', (e) => {
   const p = points.find(pt => pt.id === selectedPointId);
