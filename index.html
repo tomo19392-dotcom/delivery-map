@@ -433,6 +433,15 @@
     <h1>配送マップ 試作1号機</h1>
     <div class="count" id="pointCount">地点：0件</div>
   </div>
+  <div id="batchModeBanner" style="display:none; flex-wrap:wrap; align-items:center; gap:10px;
+    background:rgba(37,99,235,.97); color:#fff; font-size:14px; font-weight:600; padding:10px 14px;
+    border-bottom:1px solid rgba(255,255,255,.2); flex-shrink:0;">
+    <span id="batchModeBannerText" style="line-height:1.4;">🚚 本便のみ表示中</span>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">🗺️ ルートを開く</button>
+      <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">解除</button>
+    </div>
+  </div>
   <div id="map"></div>
 
   <!-- お名前入力（初回は必須。閉じるボタンなし＝入力するまで先に進めない） -->
@@ -464,15 +473,6 @@
      四隅コンテナのいずれかへ移動させる。 -->
 <div id="hint" style="position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:600;">
   地図をタップして地点を登録できます
-</div>
-<div id="batchModeBanner" style="display:none; position:fixed; top:calc(var(--header-h) + 8px); left:8px; z-index:700;
-  background:rgba(37,99,235,.97); color:#fff; font-size:14px; font-weight:600; padding:10px 14px; border-radius:14px;
-  align-items:center; gap:10px; flex-wrap:wrap; max-width:min(78vw, 340px); box-shadow:0 3px 10px rgba(0,0,0,.3);">
-  <span id="batchModeBannerText" style="line-height:1.4;">🚚 本便のみ表示中</span>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">🗺️ ルートを開く</button>
-    <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">解除</button>
-  </div>
 </div>
 <div id="legend">
   <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
@@ -1380,7 +1380,12 @@ function adjustCornerHeights(){
 function updateHeaderHeightVar(){
   const header = document.getElementById('header');
   if (!header) return;
-  document.documentElement.style.setProperty('--header-h', header.offsetHeight + 'px');
+  let height = header.offsetHeight;
+  // 「本便のみ表示中」バナーが出ている間は、その分も四隅メニューの開始位置に含める
+  // （そうしないと、バナーの上に四隅のボタンが重なって出てしまう）
+  const banner = document.getElementById('batchModeBanner');
+  if (banner && banner.style.display !== 'none') height += banner.offsetHeight;
+  document.documentElement.style.setProperty('--header-h', height + 'px');
 }
 
 
@@ -3894,6 +3899,7 @@ document.getElementById('deleteAllYesBtn').addEventListener('click', async () =>
   currentBatchItems = [];
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
+  updateHeaderHeightVar();
   await savePoints();
   await saveDrawings();
   await saveStamps();
@@ -4154,10 +4160,12 @@ document.getElementById('batchApplyBtn').addEventListener('click', () => {
   map.fitBounds(L.latLngBounds(currentBatchItems.map(item => [item.lat, item.lng])), { padding:[50,50], maxZoom:18 });
   document.getElementById('batchModeBannerText').textContent = `🚚 本便のみ表示中（${currentBatchItems.length}件）`;
   document.getElementById('batchModeBanner').style.display = 'flex';
+  updateHeaderHeightVar(); // バナーの分ヘッダーが高くなった分、四隅メニューの位置も追従させる
 });
 document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
+  updateHeaderHeightVar();
   renderAllMarkers();
 });
 document.getElementById('batchRouteBtn').addEventListener('click', () => {
