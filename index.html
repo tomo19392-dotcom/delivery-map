@@ -839,6 +839,13 @@
       🗺️ この住所を地図で探す
     </button>
     <div id="geocodeStatusText" style="font-size:12px; color:var(--sub); text-align:center; margin-top:6px;"></div>
+    <div id="geocodeResultRow" style="display:none; margin-top:8px; background:var(--bg); border-radius:10px; padding:8px 10px;">
+      <div id="geocodeResultLabel" style="font-size:12px; color:var(--ink); margin-bottom:6px;"></div>
+      <div class="btn-row" style="margin-top:0;">
+        <button type="button" class="btn btn-secondary" id="geocodeViewBtn" style="padding:7px; font-size:12px;">🗺️ 地図で見る</button>
+        <button type="button" class="btn btn-primary" id="geocodeAddBatchBtn" style="padding:7px; font-size:12px;">➕ 便に追加</button>
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
     </div>
@@ -2010,20 +2017,40 @@ function updateCount(){
 
 // ---------- マーカー描画 ----------
 let hideDoneEnabled = false;
-// 「今回の便」機能：検索で選んだ地点だけを地図に表示し、ルートを考えやすくする
-let currentBatchIds = [];
+// 「今回の便」機能：検索で選んだ地点や、まだ登録していない検索結果の場所をまとめて、
+// 地図に表示したりGoogle Mapsのルートに渡したりする。
+// pointId: 登録済みの地点ならそのid、まだ登録していない場所（住所検索の結果）ならnull。
+let currentBatchItems = []; // { key, pointId, lat, lng, label }
 let batchModeActive = false;
+function isPointInBatch(id){
+  return currentBatchItems.some(item => item.pointId === id);
+}
 function renderAllMarkers(){
   markersLayer.clearLayers();
   buildingOutlineLayer.clearLayers();
   pointMarkerById = {};
   points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
-    .filter(p => !batchModeActive || currentBatchIds.includes(p.id))
+    .filter(p => !batchModeActive || isPointInBatch(p.id))
     .forEach(p => {
       addMarkerToMap(p);
       if (p.buildingOutline) renderBuildingOutlineForPoint(p);
     });
+  // 便の中に、まだ登録していない場所（住所検索から追加したもの）があれば、
+  // それも一時的な目印として地図に表示する
+  if (batchModeActive) {
+    currentBatchItems.filter(item => !item.pointId).forEach(item => {
+      const icon = L.divIcon({
+        className:'',
+        html: `<div style="position:relative; width:30px; height:30px;">
+          <div class="pin" style="background:#DC2626;"><div class="pin-inner"></div></div>
+          <div class="pin-name-label" style="display:block;">${escapeHtml(item.label)}</div>
+        </div>`,
+        iconSize:[30,30], iconAnchor:[15,30]
+      });
+      L.marker([item.lat, item.lng], { icon, interactive:false }).addTo(markersLayer);
+    });
+  }
   updateCount();
 }
 
@@ -3008,12 +3035,11 @@ function openDetailSheet(id){
   // 地図上の地点をひとつひとつタップして、検索しなくても便に追加できるようにする
   const addToBatchBtn = document.getElementById('addToBatchBtn');
   function refreshAddToBatchBtn(){
-    const inBatch = currentBatchIds.includes(p.id);
-    addToBatchBtn.textContent = inBatch ? '✓ 便から外す' : '🚚 便に追加';
+    addToBatchBtn.textContent = isPointInBatch(p.id) ? '✓ 便から外す' : '🚚 便に追加';
   }
   refreshAddToBatchBtn();
   addToBatchBtn.onclick = () => {
-    toggleBatchPoint(p.id);
+    toggleBatchPoint(p);
     refreshAddToBatchBtn();
   };
 
@@ -3857,7 +3883,7 @@ document.getElementById('deleteAllYesBtn').addEventListener('click', async () =>
   drawings = [];
   stamps = [];
   trash = [];
-  currentBatchIds = [];
+  currentBatchItems = [];
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
   await savePoints();
@@ -4064,14 +4090,23 @@ document.getElementById('undoBtn').addEventListener('click', undoLastAction);
 function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位置'; }
 
 // ---------- 「今回の便」機能：複数の地点を選んで、それだけを地図に表示する ----------
-function toggleBatchPoint(id){
-  const i = currentBatchIds.indexOf(id);
-  if (i === -1) currentBatchIds.push(id); else currentBatchIds.splice(i, 1);
+function toggleBatchPoint(p){
+  const i = currentBatchItems.findIndex(item => item.pointId === p.id);
+  if (i === -1) {
+    currentBatchItems.push({ key:p.id, pointId:p.id, lat:p.lat, lng:p.lng, label: p.name || p.nameKana || p.address || '地点' });
+  } else {
+    currentBatchItems.splice(i, 1);
+  }
+  updateBatchBar();
+}
+// まだ登録していない場所（住所検索の結果）を便に追加する
+function addAdhocToBatch(lat, lng, label){
+  currentBatchItems.push({ key:'adhoc_' + Date.now(), pointId:null, lat, lng, label: label || '検索した場所' });
   updateBatchBar();
 }
 function updateBatchBar(){
   const bar = document.getElementById('batchBar');
-  const count = currentBatchIds.length;
+  const count = currentBatchItems.length;
   bar.style.display = count > 0 ? 'flex' : 'none';
   document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中`;
   const badge = document.getElementById('batchQuickCount');
@@ -4079,21 +4114,18 @@ function updateBatchBar(){
   badge.textContent = count;
 }
 document.getElementById('batchClearBtn').addEventListener('click', () => {
-  currentBatchIds = [];
+  currentBatchItems = [];
   updateBatchBar();
   runSearch(document.getElementById('searchInput').value);
 });
 document.getElementById('batchApplyBtn').addEventListener('click', () => {
-  if (currentBatchIds.length === 0) return;
+  if (currentBatchItems.length === 0) return;
   batchModeActive = true;
   document.getElementById('searchOverlay').classList.remove('open');
   renderAllMarkers();
   // 選んだ地点がすべて画面に収まるよう、地図の位置・拡大率を自動調整する
-  const batchPoints = points.filter(p => currentBatchIds.includes(p.id));
-  if (batchPoints.length > 0) {
-    map.fitBounds(L.latLngBounds(batchPoints.map(p => [p.lat, p.lng])), { padding:[50,50], maxZoom:18 });
-  }
-  document.getElementById('batchModeBannerText').textContent = `🚚 本便のみ表示中（${currentBatchIds.length}件）`;
+  map.fitBounds(L.latLngBounds(currentBatchItems.map(item => [item.lat, item.lng])), { padding:[50,50], maxZoom:18 });
+  document.getElementById('batchModeBannerText').textContent = `🚚 本便のみ表示中（${currentBatchItems.length}件）`;
   document.getElementById('batchModeBanner').style.display = 'flex';
 });
 document.getElementById('batchModeOffBtn').addEventListener('click', () => {
@@ -4102,13 +4134,11 @@ document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   renderAllMarkers();
 });
 document.getElementById('batchRouteBtn').addEventListener('click', () => {
-  // 選んだ地点の順番のまま、Google Mapsのルート案内へ渡す（経由地として全て含める）
-  const batchPoints = currentBatchIds
-    .map(id => points.find(p => p.id === id))
-    .filter(Boolean);
-  if (batchPoints.length === 0) return;
+  // 選んだ場所の順番のまま、Google Mapsのルート案内へ渡す（経由地として全て含める）。
+  // 登録済み地点・まだ登録していない検索結果、どちらも同じように扱える。
+  if (currentBatchItems.length === 0) return;
 
-  const coords = batchPoints.map(p => `${p.lat},${p.lng}`);
+  const coords = currentBatchItems.map(item => `${item.lat},${item.lng}`);
   let origin, destination, waypoints;
   if (myMarker) {
     // 現在地が分かっていれば、そこを出発地にする
@@ -4150,7 +4180,7 @@ function runSearch(query){
       row.style.cssText = 'padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--paper); position:relative;';
       const memoPreview = p.memo ? p.memo.slice(0, 40) : '';
       const tagChips = sortTagsByGroup(p.tags).map(id => `<span class="note-tag-chip" style="font-size:10px; padding:2px 7px;">${noteTagLabel(id)}</span>`).join('');
-      const inBatch = currentBatchIds.includes(p.id);
+      const inBatch = isPointInBatch(p.id);
       row.innerHTML = `
         <button type="button" class="batch-add-btn" data-id="${p.id}" style="position:absolute; top:8px; right:8px;
           width:26px; height:26px; border-radius:50%; border:none; font-size:13px;
@@ -4165,7 +4195,7 @@ function runSearch(query){
       `;
       row.querySelector('.batch-add-btn').addEventListener('click', (evt) => {
         evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
-        toggleBatchPoint(p.id);
+        toggleBatchPoint(p);
         runSearch(document.getElementById('searchInput').value); // ボタンの見た目を更新するため再描画する
       });
       row.addEventListener('click', () => {
@@ -4202,9 +4232,13 @@ document.getElementById('searchBtn').addEventListener('click', () => {
   if (searchResultMarker) { map.removeLayer(searchResultMarker); searchResultMarker = null; }
 });
 
+let lastGeocodeResult = null; // { lat, lng, label }
 document.getElementById('geocodeSearchBtn').addEventListener('click', async () => {
   const query = document.getElementById('searchInput').value.trim();
   const statusEl = document.getElementById('geocodeStatusText');
+  const resultRow = document.getElementById('geocodeResultRow');
+  resultRow.style.display = 'none';
+  lastGeocodeResult = null;
   if (!query) {
     statusEl.textContent = '住所を入力してから押してください。';
     return;
@@ -4220,9 +4254,9 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
       const gsiResults = await gsiRes.json();
       if (Array.isArray(gsiResults) && gsiResults.length > 0) {
         const [lon, lat] = gsiResults[0].geometry.coordinates; // 国土地理院は[経度,緯度]の順
-        document.getElementById('searchOverlay').classList.remove('open');
-        map.setView([lat, lon], 18);
-        showSearchResultMarker(lat, lon);
+        lastGeocodeResult = { lat, lng: lon, label: gsiResults[0].properties.title || query };
+        document.getElementById('geocodeResultLabel').textContent = '見つかりました：' + lastGeocodeResult.label;
+        resultRow.style.display = 'block';
         statusEl.textContent = '';
         return;
       }
@@ -4234,9 +4268,9 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
       const osmResults = await osmRes.json();
       if (osmResults && osmResults.length > 0) {
         const { lat, lon } = osmResults[0];
-        document.getElementById('searchOverlay').classList.remove('open');
-        map.setView([parseFloat(lat), parseFloat(lon)], 18);
-        showSearchResultMarker(parseFloat(lat), parseFloat(lon));
+        lastGeocodeResult = { lat: parseFloat(lat), lng: parseFloat(lon), label: query };
+        document.getElementById('geocodeResultLabel').textContent = '見つかりました：' + lastGeocodeResult.label;
+        resultRow.style.display = 'block';
         statusEl.textContent = '';
         return;
       }
@@ -4247,12 +4281,29 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
     statusEl.textContent = '住所を探せませんでした。電波の良い場所でもう一度試してください。';
   }
 });
+document.getElementById('geocodeViewBtn').addEventListener('click', () => {
+  if (!lastGeocodeResult) return;
+  document.getElementById('searchOverlay').classList.remove('open');
+  map.setView([lastGeocodeResult.lat, lastGeocodeResult.lng], 18);
+  showSearchResultMarker(lastGeocodeResult.lat, lastGeocodeResult.lng);
+});
+document.getElementById('geocodeAddBatchBtn').addEventListener('click', () => {
+  if (!lastGeocodeResult) return;
+  addAdhocToBatch(lastGeocodeResult.lat, lastGeocodeResult.lng, lastGeocodeResult.label);
+  // 追加したことが分かるよう、ボタンの表示を一時的に変える
+  const btn = document.getElementById('geocodeAddBatchBtn');
+  const original = btn.textContent;
+  btn.textContent = '✓ 追加しました';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+});
 
 function openSearchOverlay(){
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
   document.getElementById('searchEmpty').style.display = 'none';
   document.getElementById('geocodeStatusText').textContent = '';
+  document.getElementById('geocodeResultRow').style.display = 'none';
+  lastGeocodeResult = null;
   updateBatchBar(); // 前回選び途中の「便」があれば、そのまま引き継いで表示する
   document.getElementById('searchOverlay').classList.add('open');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
