@@ -465,12 +465,14 @@
 <div id="hint" style="position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:600;">
   地図をタップして地点を登録できます
 </div>
-<div id="batchModeBanner" style="display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:700;
-  background:rgba(37,99,235,.95); color:#fff; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
-  align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; max-width:92vw; box-shadow:0 2px 8px rgba(0,0,0,.25);">
-  <span id="batchModeBannerText">🚚 本便のみ表示中</span>
-  <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">🗺️ ルートを開く</button>
-  <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.25); color:#fff; border:none; border-radius:999px; padding:2px 8px; font-size:11px;">解除</button>
+<div id="batchModeBanner" style="display:none; position:fixed; top:calc(var(--header-h) + 8px); left:8px; z-index:700;
+  background:rgba(37,99,235,.97); color:#fff; font-size:14px; font-weight:600; padding:10px 14px; border-radius:14px;
+  align-items:center; gap:10px; flex-wrap:wrap; max-width:min(78vw, 340px); box-shadow:0 3px 10px rgba(0,0,0,.3);">
+  <span id="batchModeBannerText" style="line-height:1.4;">🚚 本便のみ表示中</span>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">🗺️ ルートを開く</button>
+    <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">解除</button>
+  </div>
 </div>
 <div id="legend">
   <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
@@ -823,13 +825,16 @@
     <h2>🔍 地点を検索</h2>
     <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
       style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
-    <div id="batchBar" style="display:none; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
-      background:var(--bg); border-radius:10px; padding:8px 10px; margin-bottom:10px; font-size:12px;">
-      <span id="batchCountText">🚚 今回の便：0件選択中</span>
-      <div style="display:flex; gap:6px;">
-        <button type="button" class="copy-btn" id="batchClearBtn" style="font-size:11px;">クリア</button>
-        <button type="button" class="btn btn-primary" id="batchApplyBtn" style="padding:6px 10px; font-size:11px;">地図に表示</button>
+    <div id="batchBar" style="display:none; flex-direction:column; gap:8px;
+      background:var(--bg); border-radius:10px; padding:10px; margin-bottom:10px; font-size:12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <span id="batchCountText">🚚 今回の便：0件選択中</span>
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="copy-btn" id="batchClearBtn" style="font-size:11px;">全クリア</button>
+          <button type="button" class="btn btn-primary" id="batchApplyBtn" style="padding:6px 10px; font-size:11px;">地図に表示</button>
+        </div>
       </div>
+      <div id="batchItemList" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
     </div>
     <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
     <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
@@ -4115,6 +4120,25 @@ function updateBatchBar(){
   const badge = document.getElementById('batchQuickCount');
   badge.style.display = count > 0 ? 'inline-block' : 'none';
   badge.textContent = count;
+
+  // 一覧の中の✕ボタんで、その1件だけを個別に外せるようにする
+  const listEl = document.getElementById('batchItemList');
+  listEl.innerHTML = currentBatchItems.map((item, i) => `
+    <div style="display:flex; align-items:center; gap:8px; background:var(--paper); border-radius:8px; padding:6px 8px;">
+      <span style="flex-shrink:0; width:20px; height:20px; border-radius:50%; background:var(--blue); color:#fff;
+        font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center;">${i + 1}</span>
+      <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px;">${escapeHtml(item.label)}</span>
+      <button type="button" class="batch-remove-btn" data-key="${item.key}"
+        style="flex-shrink:0; background:none; border:none; color:var(--red); font-size:16px; padding:0 4px;">✕</button>
+    </div>
+  `).join('');
+  listEl.querySelectorAll('.batch-remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentBatchItems = currentBatchItems.filter(item => item.key !== btn.dataset.key);
+      updateBatchBar();
+      runSearch(document.getElementById('searchInput').value); // 検索結果側の番号表示も更新する
+    });
+  });
 }
 document.getElementById('batchClearBtn').addEventListener('click', () => {
   currentBatchItems = [];
