@@ -2040,15 +2040,17 @@ function renderAllMarkers(){
   // それも一時的な目印として地図に表示する
   if (batchModeActive) {
     currentBatchItems.filter(item => !item.pointId).forEach(item => {
-      const icon = L.divIcon({
-        className:'',
-        html: `<div style="position:relative; width:30px; height:30px;">
-          <div class="pin" style="background:#DC2626;"><div class="pin-inner"></div></div>
-          <div class="pin-name-label" style="display:block;">${escapeHtml(item.label)}</div>
-        </div>`,
-        iconSize:[30,30], iconAnchor:[15,30]
-      });
-      L.marker([item.lat, item.lng], { icon, interactive:false }).addTo(markersLayer);
+      // 検索しただけでまだ登録していない場所は、以前の検索結果と同じ「点滅する赤い印」で統一する
+      const html = `
+        <div style="position:relative; width:34px; height:34px;">
+          <div style="position:absolute; top:0; left:0; width:34px; height:34px; border-radius:50%;
+            background:rgba(220,38,38,.35); animation:pulse 1.4s ease-out infinite;"></div>
+          <div style="position:absolute; top:9px; left:9px; width:16px; height:16px; border-radius:50%;
+            background:#DC2626; border:3px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>
+          <div class="pin-name-label" style="display:block; top:9px; left:38px;">${escapeHtml(item.label)}</div>
+        </div>`;
+      const icon = L.divIcon({ className:'', html, iconSize:[34,34], iconAnchor:[17,17] });
+      L.marker([item.lat, item.lng], { icon, interactive:false, zIndexOffset:2000 }).addTo(markersLayer);
     });
   }
   updateCount();
@@ -3035,7 +3037,8 @@ function openDetailSheet(id){
   // 地図上の地点をひとつひとつタップして、検索しなくても便に追加できるようにする
   const addToBatchBtn = document.getElementById('addToBatchBtn');
   function refreshAddToBatchBtn(){
-    addToBatchBtn.textContent = isPointInBatch(p.id) ? '✓ 便から外す' : '🚚 便に追加';
+    const order = currentBatchItems.findIndex(item => item.pointId === p.id);
+    addToBatchBtn.textContent = order !== -1 ? `✓ ${order + 1}番目（外す）` : '🚚 便に追加';
   }
   refreshAddToBatchBtn();
   addToBatchBtn.onclick = () => {
@@ -4108,7 +4111,7 @@ function updateBatchBar(){
   const bar = document.getElementById('batchBar');
   const count = currentBatchItems.length;
   bar.style.display = count > 0 ? 'flex' : 'none';
-  document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中`;
+  document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中（選んだ順が出発→到着になります）`;
   const badge = document.getElementById('batchQuickCount');
   badge.style.display = count > 0 ? 'inline-block' : 'none';
   badge.textContent = count;
@@ -4136,21 +4139,20 @@ document.getElementById('batchModeOffBtn').addEventListener('click', () => {
 document.getElementById('batchRouteBtn').addEventListener('click', () => {
   // 選んだ場所の順番のまま、Google Mapsのルート案内へ渡す（経由地として全て含める）。
   // 登録済み地点・まだ登録していない検索結果、どちらも同じように扱える。
+  // 以前は現在地を出発点にしていたが、GPSの状態次第で不安定になることがあったため、
+  // 選んだ地点の並び順（1つ目＝出発、最後＝到着）だけで決まる、単純な方式に変更した。
   if (currentBatchItems.length === 0) return;
+  if (currentBatchItems.length === 1) {
+    // 1件だけの場合は、そこへの道順を出す（出発地は指定しない＝今いる場所からになる）
+    const only = currentBatchItems[0];
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${only.lat},${only.lng}`, '_blank');
+    return;
+  }
 
   const coords = currentBatchItems.map(item => `${item.lat},${item.lng}`);
-  let origin, destination, waypoints;
-  if (myMarker) {
-    // 現在地が分かっていれば、そこを出発地にする
-    const myLatLng = myMarker.getLatLng();
-    origin = `${myLatLng.lat},${myLatLng.lng}`;
-    destination = coords[coords.length - 1];
-    waypoints = coords.slice(0, -1);
-  } else {
-    origin = coords[0];
-    destination = coords[coords.length - 1];
-    waypoints = coords.slice(1, -1);
-  }
+  const origin = coords[0];
+  const destination = coords[coords.length - 1];
+  let waypoints = coords.slice(1, -1);
   // Google Mapsの経由地は10件程度までしか渡せないため、超える場合は先頭側を優先して切り詰める
   if (waypoints.length > 9) waypoints = waypoints.slice(0, 9);
 
@@ -4180,11 +4182,12 @@ function runSearch(query){
       row.style.cssText = 'padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--paper); position:relative;';
       const memoPreview = p.memo ? p.memo.slice(0, 40) : '';
       const tagChips = sortTagsByGroup(p.tags).map(id => `<span class="note-tag-chip" style="font-size:10px; padding:2px 7px;">${noteTagLabel(id)}</span>`).join('');
-      const inBatch = isPointInBatch(p.id);
+      const batchOrder = currentBatchItems.findIndex(item => item.pointId === p.id); // -1なら未選択
+      const inBatch = batchOrder !== -1;
       row.innerHTML = `
         <button type="button" class="batch-add-btn" data-id="${p.id}" style="position:absolute; top:8px; right:8px;
           width:26px; height:26px; border-radius:50%; border:none; font-size:13px;
-          background:${inBatch ? 'var(--blue)' : '#f3f4f6'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? '✓' : '＋'}</button>
+          background:${inBatch ? 'var(--blue)' : '#f3f4f6'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? (batchOrder + 1) : '＋'}</button>
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'}; padding-right:30px;">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
         </div>
