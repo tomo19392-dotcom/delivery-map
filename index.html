@@ -835,6 +835,10 @@
         </div>
       </div>
       <div id="batchItemList" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label style="flex-shrink:0; color:var(--sub);">🚩 出発地点</label>
+        <select id="batchOriginSelect" style="flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; background:var(--paper); color:var(--ink);"></select>
+      </div>
     </div>
     <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
     <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
@@ -2031,6 +2035,7 @@ let hideDoneEnabled = false;
 // 地図に表示したりGoogle Mapsのルートに渡したりする。
 // pointId: 登録済みの地点ならそのid、まだ登録していない場所（住所検索の結果）ならnull。
 let currentBatchItems = []; // { key, pointId, lat, lng, label }
+let batchOriginKey = 'current'; // 'current'＝現在地、それ以外はcurrentBatchItemsのkey
 let batchModeActive = false;
 function isPointInBatch(id){
   return currentBatchItems.some(item => item.pointId === id);
@@ -3897,6 +3902,7 @@ document.getElementById('deleteAllYesBtn').addEventListener('click', async () =>
   stamps = [];
   trash = [];
   currentBatchItems = [];
+  batchOriginKey = 'current';
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
   updateHeaderHeightVar();
@@ -4122,7 +4128,7 @@ function updateBatchBar(){
   const bar = document.getElementById('batchBar');
   const count = currentBatchItems.length;
   bar.style.display = count > 0 ? 'flex' : 'none';
-  document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中（選んだ順が出発→到着になります）`;
+  document.getElementById('batchCountText').textContent = `🚚 今回の便：${count}件選択中（出発地点以外は選んだ順で回ります）`;
   const badge = document.getElementById('batchQuickCount');
   badge.style.display = count > 0 ? 'inline-block' : 'none';
   badge.textContent = count;
@@ -4145,9 +4151,20 @@ function updateBatchBar(){
       runSearch(document.getElementById('searchInput').value); // 検索結果側の番号表示も更新する
     });
   });
+
+  // 出発地点の選択肢（現在地 or 便の中のどれか）を作り直す
+  if (!currentBatchItems.some(item => item.key === batchOriginKey)) batchOriginKey = 'current';
+  const originSelect = document.getElementById('batchOriginSelect');
+  originSelect.innerHTML = '<option value="current">📍 現在地</option>' +
+    currentBatchItems.map(item => `<option value="${item.key}">${escapeHtml(item.label)}</option>`).join('');
+  originSelect.value = batchOriginKey;
 }
+document.getElementById('batchOriginSelect').addEventListener('change', (e) => {
+  batchOriginKey = e.target.value;
+});
 document.getElementById('batchClearBtn').addEventListener('click', () => {
   currentBatchItems = [];
+  batchOriginKey = 'current';
   updateBatchBar();
   runSearch(document.getElementById('searchInput').value);
 });
@@ -4169,26 +4186,41 @@ document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   renderAllMarkers();
 });
 document.getElementById('batchRouteBtn').addEventListener('click', () => {
-  // 選んだ場所の順番のまま、Google Mapsのルート案内へ渡す（経由地として全て含める）。
-  // 登録済み地点・まだ登録していない検索結果、どちらも同じように扱える。
-  // 以前は現在地を出発点にしていたが、GPSの状態次第で不安定になることがあったため、
-  // 選んだ地点の並び順（1つ目＝出発、最後＝到着）だけで決まる、単純な方式に変更した。
+  // 出発地点は「現在地」または「便の中の選んだ1件」から選べる。
+  // それ以外の地点は、選んだ順番のまま経由地→到着地としてGoogle Mapsに渡す。
   if (currentBatchItems.length === 0) return;
-  if (currentBatchItems.length === 1) {
-    // 1件だけの場合は、そこへの道順を出す（出発地は指定しない＝今いる場所からになる）
-    const only = currentBatchItems[0];
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${only.lat},${only.lng}`, '_blank');
+
+  // 出発地点に選んだものを、経由地の並びから除いておく（出発地とダブらないように）
+  const stops = currentBatchItems.filter(item => item.key !== batchOriginKey);
+
+  let originText;
+  if (batchOriginKey === 'current') {
+    if (myMarker) {
+      const myLatLng = myMarker.getLatLng();
+      originText = `${myLatLng.lat},${myLatLng.lng}`;
+    } else {
+      originText = null; // 現在地が分からない場合は、Google Maps側に今いる場所を判断してもらう
+    }
+  } else {
+    const originItem = currentBatchItems.find(item => item.key === batchOriginKey);
+    originText = originItem ? `${originItem.lat},${originItem.lng}` : null;
+  }
+
+  if (stops.length === 0) {
+    // 出発地点しか選んでいない場合は、そこへの道順だけを出す
+    if (!originText) { alert('出発地点の位置が分かりませんでした。'); return; }
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${originText}`, '_blank');
     return;
   }
 
-  const coords = currentBatchItems.map(item => `${item.lat},${item.lng}`);
-  const origin = coords[0];
+  const coords = stops.map(item => `${item.lat},${item.lng}`);
   const destination = coords[coords.length - 1];
-  let waypoints = coords.slice(1, -1);
+  let waypoints = coords.slice(0, -1);
   // Google Mapsの経由地は10件程度までしか渡せないため、超える場合は先頭側を優先して切り詰める
   if (waypoints.length > 9) waypoints = waypoints.slice(0, 9);
 
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  let url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+  if (originText) url += `&origin=${originText}`;
   if (waypoints.length > 0) url += `&waypoints=${waypoints.join('|')}`;
   window.open(url, '_blank');
 });
