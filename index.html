@@ -209,6 +209,7 @@
     box-shadow:0 1px 3px rgba(0,0,0,.4); }
   .badge-photo{ top:-6px; right:-8px; }
   .badge-warn{ bottom:-6px; right:-8px; color:var(--red); }
+  .badge-base{ bottom:-6px; left:-8px; }
 
   /* フローティングボタン */
   .fab{
@@ -648,6 +649,10 @@
       <div id="parkingCategoryWrap" style="display:none;">
         <label class="field-label">停車位置の種類</label>
         <div class="corner-picker" id="parkingCategoryPicker" style="margin-bottom:16px;"></div>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; cursor:pointer;">
+          <input type="checkbox" id="isBaseInput" style="width:18px; height:18px;" />
+          <span style="font-size:13px;">🚩 拠点として登録する（ルートを組む時、出発地点にいつでも選べるようになります）</span>
+        </label>
       </div>
 
       <div id="linkedParkingWrap" style="display:none;">
@@ -2107,6 +2112,7 @@ function addMarkerToMap(p){
           ${pinInner}
           ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
           ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
+          ${p.isBase ? '<div class="badge badge-base">🚩</div>' : ''}
         </div>
         ${nameLabel}
       </div>`;
@@ -2184,6 +2190,7 @@ function openNewSheet(latlng){
   pendingLatLng = latlng;
   pendingType = null;
   setPendingParkingCategory('general');
+  document.getElementById('isBaseInput').checked = false;
   document.getElementById('ocrResultBox').style.display = 'none';
   document.getElementById('ocrSplitRow').style.display = 'none';
   document.getElementById('ocrResultText').value = '';
@@ -2248,6 +2255,7 @@ function openEditSheet(id){
 
   selectType(p.type); // ボタンの選択状態を既存の種類に合わせる（停車位置の選択肢もここで作られる）
   setPendingParkingCategory(p.parkingCategory);
+  document.getElementById('isBaseInput').checked = !!p.isBase;
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
@@ -2727,6 +2735,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.attention = document.getElementById('attnInput').checked;
       p.parkHere = (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false;
       p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
+      p.isBase = (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
       savedPointForOutline = p;
     }
@@ -2750,6 +2759,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       attention: document.getElementById('attnInput').checked,
       parkHere: (pendingType === 'delivery') ? document.getElementById('parkHereInput').checked : false,
       parkingCategory: (pendingType === 'parking') ? pendingParkingCategory : null,
+      isBase: (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
       createdAt: Date.now(),
@@ -4152,11 +4162,24 @@ function updateBatchBar(){
     });
   });
 
-  // 出発地点の選択肢（現在地 or 便の中のどれか）を作り直す
-  if (!currentBatchItems.some(item => item.key === batchOriginKey)) batchOriginKey = 'current';
+  // 出発地点の選択肢を作り直す：現在地／拠点として登録した地点(便に入れていなくても選べる)／便の中の場所
+  const basePoints = points.filter(p => p.type === 'parking' && p.isBase);
+  const validKeys = ['current', ...basePoints.map(p => p.id), ...currentBatchItems.map(item => item.key)];
+  if (!validKeys.includes(batchOriginKey)) batchOriginKey = 'current';
   const originSelect = document.getElementById('batchOriginSelect');
-  originSelect.innerHTML = '<option value="current">📍 現在地</option>' +
-    currentBatchItems.map(item => `<option value="${item.key}">${escapeHtml(item.label)}</option>`).join('');
+  let optionsHtml = '<option value="current">📍 現在地</option>';
+  if (basePoints.length > 0) {
+    optionsHtml += '<optgroup label="🚩 拠点">' +
+      basePoints.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.nameKana || '拠点')}</option>`).join('') +
+      '</optgroup>';
+  }
+  const batchOnlyItems = currentBatchItems.filter(item => !basePoints.some(p => p.id === item.key));
+  if (batchOnlyItems.length > 0) {
+    optionsHtml += '<optgroup label="今回の便">' +
+      batchOnlyItems.map(item => `<option value="${item.key}">${escapeHtml(item.label)}</option>`).join('') +
+      '</optgroup>';
+  }
+  originSelect.innerHTML = optionsHtml;
   originSelect.value = batchOriginKey;
 }
 document.getElementById('batchOriginSelect').addEventListener('change', (e) => {
@@ -4202,8 +4225,14 @@ document.getElementById('batchRouteBtn').addEventListener('click', () => {
       originText = null; // 現在地が分からない場合は、Google Maps側に今いる場所を判断してもらう
     }
   } else {
+    // 便の中にあればそこから、無ければ拠点として登録した地点から座標を探す
     const originItem = currentBatchItems.find(item => item.key === batchOriginKey);
-    originText = originItem ? `${originItem.lat},${originItem.lng}` : null;
+    if (originItem) {
+      originText = `${originItem.lat},${originItem.lng}`;
+    } else {
+      const originPoint = points.find(p => p.id === batchOriginKey);
+      originText = originPoint ? `${originPoint.lat},${originPoint.lng}` : null;
+    }
   }
 
   if (stops.length === 0) {
