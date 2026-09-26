@@ -1031,6 +1031,21 @@
       同じ場所を選んでも重なりません。自動で縦に並びます。
     </p>
 
+    <label class="field-label">時間帯別の通りにくさ（自分の走行記録から）</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      実際に走った記録を時間帯ごとに集め、地図に薄く色で重ねます（赤いほど遅かった目安）。
+      渋滞そのものの情報ではなく、あくまで過去の自分の記録に基づく参考情報です。
+      データが少ないうちはほとんど表示されません。
+    </p>
+    <div style="margin-bottom:8px;">
+      <button class="toggle-btn" id="traceHeatmapToggleBtn"><span class="box">⬜</span> 地図に表示する</button>
+    </div>
+    <div id="traceHeatmapHourWrap" style="display:none; margin-bottom:16px;">
+      <label class="field-label" style="margin-top:0;">表示する時間帯</label>
+      <select id="traceHeatmapHourSelect"
+        style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);"></select>
+    </div>
+
     <label class="field-label" style="color:var(--red); margin-top:24px;">⚠️ 危険な操作</label>
     <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
       地点・線・スタンプ・ゴミ箱を含む、すべてのデータを消します。取り消せません。
@@ -1139,7 +1154,7 @@ const SETTINGS_KEY = 'delivery-draw-settings-v1';
 let points = [];          // {id, lat, lng, type, memo, photo, attention, createdAt}
 let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
 let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
-let map, myMarker, markersLayer, buildingOutlineLayer, drawingsLayer, stampsLayer;
+let map, myMarker, markersLayer, buildingOutlineLayer, traceHeatmapLayer, drawingsLayer, stampsLayer;
 let pendingLatLng = null;
 let pendingType = null;
 let pendingParkingCategory = 'general';
@@ -1188,6 +1203,8 @@ let drawStyle = 'free'; // 'pan'(移動) | 'free'(フリーハンド) | 'straigh
 let arrowEnabled = false; // フリーハンド／直線のどちらにも付けられる矢印ON/OFF
 let darkModeEnabled = false;
 let largeTextEnabled = false;
+let traceHeatmapEnabled = false;
+let traceHeatmapHour = new Date().getHours(); // 初期値は今の時間帯
 let showNameLabelsEnabled = true; // デフォルトはON（誰の場所か分かることを重視する方針のため）
 let currentStampType = 'no_entry';
 let selectedDrawingId = null;
@@ -1408,6 +1425,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   buildStampBar();
   buildNoteTagsUI();
   buildParkingCategoryPicker();
+  await loadTraceGrid(); // 設定を反映する時点でヒートマップを描けるよう、先に読み込んでおく
   loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
   await loadPoints();
   await loadDrawings();
@@ -1512,6 +1530,7 @@ function initMap(){
 
   markersLayer = L.layerGroup().addTo(map);
   buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
+  traceHeatmapLayer = L.layerGroup().addTo(map); // 時間帯別の通りにくさの表示（見える化）
   drawingsLayer = L.layerGroup().addTo(map);
   stampsLayer = L.layerGroup().addTo(map);
 
@@ -1974,6 +1993,70 @@ function placeMyMarker(latlng){
   setGpsStatus('取得できました');
 }
 
+// ---------- 足跡の記録・時間帯別の「通りにくさ」の蓄積 ----------
+// 目的：ナビや渋滞情報そのものは作れないので、代わりに「自分が実際に走った記録」を
+// 時間帯ごとに集計し、地図に薄く重ねて「この時間帯・このあたりは時間がかかりがち」を
+// 参考情報として見えるようにする。ルートへの自動警告ではなく、あくまで判断材料。
+//
+// 荷卸し中（配達先で停車している時間）を渋滞と誤認しないための対策：
+//  1. 登録済みの地点（配達先・停車位置）から近い場所（約40m以内）の記録は集計しない
+//  2. 90秒以上ほとんど動いていない記録も集計しない（渋滞なら少しずつでも進むはず）
+//  3. 実際に前進している区間の速度だけを蓄積する
+const TRACE_GRID_KEY = 'delivery-trace-grid-v1';
+const TRACE_GRID_SIZE = 0.001; // 緯度経度およそ0.001度＝100m四方のマス目にして集計する
+let traceGrid = {}; // { "gridLat_gridLng_hour": { sum: 速度の合計, count: 件数 } }
+let lastTracePoint = null; // 直前に記録した地点（ここからの移動を見て速度を計算する）
+
+async function loadTraceGrid(){
+  try {
+    const raw = localStorage.getItem(TRACE_GRID_KEY);
+    traceGrid = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    traceGrid = {};
+  }
+}
+async function saveTraceGrid(){
+  try { localStorage.setItem(TRACE_GRID_KEY, JSON.stringify(traceGrid)); }
+  catch (e) { console.error('足跡データの保存に失敗', e); }
+}
+function traceGridKey(lat, lng, hour){
+  const gLat = Math.round(lat / TRACE_GRID_SIZE) * TRACE_GRID_SIZE;
+  const gLng = Math.round(lng / TRACE_GRID_SIZE) * TRACE_GRID_SIZE;
+  return `${gLat.toFixed(3)}_${gLng.toFixed(3)}_${hour}`;
+}
+function recordTraceSpeed(lat, lng, timestampMs, speedKmh){
+  const hour = new Date(timestampMs).getHours();
+  const key = traceGridKey(lat, lng, hour);
+  if (!traceGrid[key]) traceGrid[key] = { sum: 0, count: 0 };
+  traceGrid[key].sum += speedKmh;
+  traceGrid[key].count += 1;
+  // データが増えすぎてストレージを圧迫しないよう、上限を超えたら古そうなものから間引く
+  const keys = Object.keys(traceGrid);
+  if (keys.length > 8000) {
+    keys.sort((a,b) => traceGrid[a].count - traceGrid[b].count); // サンプル数が少ない＝信頼度が低いものから間引く
+    keys.slice(0, 1000).forEach(k => delete traceGrid[k]);
+  }
+  saveTraceGrid();
+}
+function handleTracePoint(lat, lng, timestampMs){
+  const now = { lat, lng, t: timestampMs };
+  if (!lastTracePoint) { lastTracePoint = now; return; }
+  const dtSec = (now.t - lastTracePoint.t) / 1000;
+  if (dtSec < 15) return; // 短い間隔の記録はノイズになりやすいので、ある程度間隔が空くまで待つ
+  const distM = distanceMeters(lastTracePoint.lat, lastTracePoint.lng, now.lat, now.lng);
+
+  const isStop = (dtSec > 90 && distM < 30); // 長時間ほぼ動いていない＝荷卸し等で停車中とみなす
+  const isNearRegisteredPoint = points.some(p => distanceMeters(p.lat, p.lng, now.lat, now.lng) < 40);
+
+  if (!isStop && !isNearRegisteredPoint && distM >= 15) {
+    const speedKmh = (distM / 1000) / (dtSec / 3600);
+    if (speedKmh > 1 && speedKmh < 120) { // 明らかに異常な値（GPSのブレなど）は除外する
+      recordTraceSpeed(now.lat, now.lng, now.t, speedKmh);
+    }
+  }
+  lastTracePoint = now;
+}
+
 function startWatchingMyLocation(){
   if (!navigator.geolocation) { setGpsStatus('この端末では使えません'); return; }
 
@@ -1992,6 +2075,7 @@ function startWatchingMyLocation(){
       placeMyMarker(latlng);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
+      handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
     },
     (err) => {
       console.warn('位置情報を取得できません', err);
@@ -4490,6 +4574,8 @@ function loadDrawSettings(){
       if (typeof s.darkMode === 'boolean') darkModeEnabled = s.darkMode;
       if (typeof s.largeText === 'boolean') largeTextEnabled = s.largeText;
       if (typeof s.showNameLabels === 'boolean') showNameLabelsEnabled = s.showNameLabels;
+      if (typeof s.traceHeatmap === 'boolean') traceHeatmapEnabled = s.traceHeatmap;
+      if (typeof s.traceHeatmapHour === 'number') traceHeatmapHour = s.traceHeatmapHour;
     }
   } catch (e) { /* 保存済み設定が無い場合は初期値のまま */ }
 
@@ -4510,6 +4596,8 @@ function loadDrawSettings(){
   applyDarkMode();
   applyLargeText();
   applyShowNameLabels();
+  buildTraceHeatmapHourOptions();
+  applyTraceHeatmapToggle();
   applyLayoutPositions();
 }
 
@@ -4518,7 +4606,8 @@ function saveDrawSettings(){
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       color: currentDrawColor, weight: currentLineWeight, arrow: arrowEnabled,
       modeBarPosition: modeBarPosition, zoomBarPosition: zoomBarPosition,
-      darkMode: darkModeEnabled, largeText: largeTextEnabled, showNameLabels: showNameLabelsEnabled
+      darkMode: darkModeEnabled, largeText: largeTextEnabled, showNameLabels: showNameLabelsEnabled,
+      traceHeatmap: traceHeatmapEnabled, traceHeatmapHour: traceHeatmapHour
     }));
   } catch (e) { console.error('設定の保存に失敗', e); }
 }
@@ -4550,6 +4639,59 @@ document.getElementById('largeTextToggleBtn').addEventListener('click', () => {
   applyLargeText();
   saveDrawSettings();
 });
+
+// ---------- 時間帯別の通りにくさの表示 ----------
+function buildTraceHeatmapHourOptions(){
+  const select = document.getElementById('traceHeatmapHourSelect');
+  select.innerHTML = '';
+  for (let h = 0; h < 24; h++) {
+    const opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = `${h}時台`;
+    select.appendChild(opt);
+  }
+  select.value = traceHeatmapHour;
+}
+function speedToColor(avgSpeedKmh){
+  // 遅いほど赤、速いほど緑（あくまで目安の3段階）
+  if (avgSpeedKmh < 10) return '#D6453F';
+  if (avgSpeedKmh < 20) return '#EAB854';
+  return '#6B9080';
+}
+function renderTraceHeatmap(){
+  traceHeatmapLayer.clearLayers();
+  if (!traceHeatmapEnabled) return;
+  const suffix = '_' + traceHeatmapHour;
+  Object.keys(traceGrid).forEach(key => {
+    if (!key.endsWith(suffix)) return;
+    const cell = traceGrid[key];
+    if (cell.count < 3) return; // サンプルが少なすぎるものはノイズとして表示しない
+    const [gLatStr, gLngStr] = key.split('_');
+    const gLat = parseFloat(gLatStr), gLng = parseFloat(gLngStr);
+    const half = TRACE_GRID_SIZE / 2;
+    const bounds = [[gLat - half, gLng - half], [gLat + half, gLng + half]];
+    const avgSpeed = cell.sum / cell.count;
+    L.rectangle(bounds, {
+      color: speedToColor(avgSpeed), weight:0, fillOpacity:0.35, interactive:false
+    }).addTo(traceHeatmapLayer);
+  });
+}
+function applyTraceHeatmapToggle(){
+  applyToggleAppearance(document.getElementById('traceHeatmapToggleBtn'), traceHeatmapEnabled);
+  document.getElementById('traceHeatmapHourWrap').style.display = traceHeatmapEnabled ? 'block' : 'none';
+  renderTraceHeatmap();
+}
+document.getElementById('traceHeatmapToggleBtn').addEventListener('click', () => {
+  traceHeatmapEnabled = !traceHeatmapEnabled;
+  applyTraceHeatmapToggle();
+  saveDrawSettings();
+});
+document.getElementById('traceHeatmapHourSelect').addEventListener('change', (e) => {
+  traceHeatmapHour = parseInt(e.target.value, 10);
+  renderTraceHeatmap();
+  saveDrawSettings();
+});
+
 function applyShowNameLabels(){
   const mapEl = document.getElementById('map');
   if (mapEl) mapEl.classList.toggle('hide-name-labels', !showNameLabelsEnabled);
