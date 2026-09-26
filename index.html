@@ -4450,6 +4450,12 @@ document.getElementById('searchBtn').addEventListener('click', () => {
 });
 
 let lastGeocodeResult = null; // { lat, lng, label }
+// タイムアウト付きでfetchする（通信が遅い時に無反応のまま待たされ続けないようにする）
+function fetchWithTimeout(url, options, timeoutMs){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
 document.getElementById('geocodeSearchBtn').addEventListener('click', async () => {
   const query = document.getElementById('searchInput').value.trim();
   const statusEl = document.getElementById('geocodeStatusText');
@@ -4461,41 +4467,57 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
     return;
   }
   statusEl.textContent = '探しています…';
-  try {
-    // 国土地理院（日本の公式機関）の住所検索を優先して使う。
-    // 以前使っていたOSM系の検索は、日本の細かい住所（丁目・番地など）に弱く、
-    // 見つからないことが多かったための変更。
-    const gsiUrl = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(query);
-    const gsiRes = await fetch(gsiUrl);
-    if (gsiRes.ok) {
-      const gsiResults = await gsiRes.json();
-      if (Array.isArray(gsiResults) && gsiResults.length > 0) {
-        const [lon, lat] = gsiResults[0].geometry.coordinates; // 国土地理院は[経度,緯度]の順
-        lastGeocodeResult = { lat, lng: lon, label: gsiResults[0].properties.title || query };
-        document.getElementById('geocodeResultLabel').textContent = '見つかりました：' + lastGeocodeResult.label;
-        resultRow.style.display = 'block';
-        statusEl.textContent = '';
-        return;
-      }
+
+  // 国土地理院（日本の公式機関）とOSM系、両方を同時に試す。
+  // 以前は片方が終わってからもう片方、という順番だったため、
+  // 遅い方・見つからない方を待たされる分、全体としてかなり遅くなっていた。
+  const gsiPromise = fetchWithTimeout(
+    'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(query), {}, 8000
+  ).then(res => res.ok ? res.json() : null).then(results => {
+    if (Array.isArray(results) && results.length > 0) {
+      const [lon, lat] = results[0].geometry.coordinates; // 国土地理院は[経度,緯度]の順
+      return { lat, lng: lon, label: results[0].properties.title || query };
     }
-    // 国土地理院で見つからない場合だけ、OSM系の検索も念のため試す
-    const osmUrl = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(query);
-    const osmRes = await fetch(osmUrl, { headers: { 'Accept-Language': 'ja' } });
-    if (osmRes.ok) {
-      const osmResults = await osmRes.json();
-      if (osmResults && osmResults.length > 0) {
-        const { lat, lon } = osmResults[0];
-        lastGeocodeResult = { lat: parseFloat(lat), lng: parseFloat(lon), label: query };
-        document.getElementById('geocodeResultLabel').textContent = '見つかりました：' + lastGeocodeResult.label;
-        resultRow.style.display = 'block';
-        statusEl.textContent = '';
-        return;
-      }
+    return null;
+  }).catch(() => null);
+
+  const osmPromise = fetchWithTimeout(
+    'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(query),
+    { headers: { 'Accept-Language': 'ja' } }, 8000
+  ).then(res => res.ok ? res.json() : null).then(results => {
+    if (results && results.length > 0) {
+      return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon), label: query };
     }
-    statusEl.textContent = '見つかりませんでした。住所の書き方を変えて試してみてください。';
-  } catch (e) {
-    console.error('住所検索エラー:', e);
-    statusEl.textContent = '住所を探せませんでした。電波の良い場所でもう一度試してください。';
+    return null;
+  }).catch(() => null);
+
+  const [gsiResult, osmResult] = await Promise.all([gsiPromise, osmPromise]);
+  // 住所の書き方に強い国土地理院を優先し、そちらが空振りだった場合だけOSM側の結果を使う
+  lastGeocodeResult = gsiResult || osmResult;
+
+  // 「北区田町1-2-3」のように市区町村名が省略されていて見つからない場合、
+  // このアプリが主に使われている岡山市を補って、自動でもう一度だけ試す
+  if (!lastGeocodeResult && !/[都道府県市]/.test(query)) {
+    statusEl.textContent = '見つからないため「岡山市」を補って探しています…';
+    const retryQuery = '岡山市' + query;
+    const retryResult = await fetchWithTimeout(
+      'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(retryQuery), {}, 8000
+    ).then(res => res.ok ? res.json() : null).then(results => {
+      if (Array.isArray(results) && results.length > 0) {
+        const [lon, lat] = results[0].geometry.coordinates;
+        return { lat, lng: lon, label: results[0].properties.title || retryQuery };
+      }
+      return null;
+    }).catch(() => null);
+    lastGeocodeResult = retryResult;
+  }
+
+  if (lastGeocodeResult) {
+    document.getElementById('geocodeResultLabel').textContent = '見つかりました：' + lastGeocodeResult.label;
+    resultRow.style.display = 'block';
+    statusEl.textContent = '';
+  } else {
+    statusEl.textContent = '見つかりませんでした。「市区町村名」も入れて試してみてください（例：岡山市北区〜）。';
   }
 });
 document.getElementById('geocodeViewBtn').addEventListener('click', () => {
