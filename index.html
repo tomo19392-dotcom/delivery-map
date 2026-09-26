@@ -28,3 +28,2160 @@
     --line:#374151;
   }
   /* CSS変数化されていない、個別にハードコードされた白背景の要素はここで上書きする */
+  html[data-theme="dark"] #legend{ background:rgba(31,41,55,.92); }
+  html[data-theme="dark"] .btn-group-panel{ background:rgba(31,41,55,.95); }
+  html[data-theme="dark"] #undoBtn,
+  html[data-theme="dark"] #settingsBtn,
+  html[data-theme="dark"] #trashBtn,
+  html[data-theme="dark"] #searchBtn{ background:rgba(31,41,55,.95) !important; color:var(--ink) !important; }
+  html[data-theme="dark"] .corner-picker{ background:#111827; }
+  html[data-theme="dark"] .style-btn.selected{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .btn-primary{ background:#4b5563; color:#fff; }
+  html[data-theme="dark"] .btn-secondary{ background:#374151; color:var(--ink); border:1px solid #4b5563; }
+  html[data-theme="dark"] .btn-danger{ background:#450a0a; color:#fca5a5; }
+  html[data-theme="dark"] .copy-btn{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .copy-btn.copied{ background:#064e3b; color:#6ee7b7; }
+  html[data-theme="dark"] .toggle-btn{ background:#111827; border-color:#374151; color:var(--ink); }
+  html[data-theme="dark"] .weight-swatch, html[data-theme="dark"] .color-swatch{ border-color:#374151; }
+  html[data-theme="dark"] .toggle-btn.on{ background:#064e3b; border-color:#10b981; color:#6ee7b7; }
+  html[data-theme="dark"] #drawBar, html[data-theme="dark"] #stampBar{ background:rgba(31,41,55,.97) !important; }
+  html[data-theme="dark"] #drawHintRow{ color:var(--sub); }
+
+  /* 描画中、メニュー類が邪魔になる場所を描けるよう、一時的にすべて隠せるようにする */
+  body.ui-hidden .corner-stack,
+  body.ui-hidden #drawBar,
+  body.ui-hidden #stampBar,
+  body.ui-hidden #hint{ display:none !important; }
+  html[data-theme="dark"] #newOverlay .sheet.type-delivery{ background:#4a2c17; }
+  html[data-theme="dark"] #newOverlay .sheet.type-parking{ background:#1e3a5f; }
+  /* 地図タイル自体を少し暗めに寄せる（白飛びを抑え、夜間の目の負担を減らす） */
+  html[data-theme="dark"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
+
+  /* ---------- 文字を大きくする（メモ・パスワードなどが見えにくい人向け） ---------- */
+  html[data-text-size="large"] #detailMemo,
+  html[data-text-size="large"] #detailBoxPassword{ font-size:19px; line-height:1.6; }
+  html[data-text-size="large"] #memoInput,
+  html[data-text-size="large"] #boxPasswordInput{ font-size:17px; padding:13px 14px; }
+  html[data-text-size="large"] .field-label{ font-size:14px; }
+  html[data-text-size="large"] #legend{ font-size:14px; line-height:2; }
+  html[data-text-size="large"] .detail-type,
+  html[data-text-size="large"] .detail-warn{ font-size:14px; padding:6px 12px; }
+  html[data-text-size="large"] #searchResults div{ font-size:15px !important; }
+  html[data-text-size="large"] .sheet h2{ font-size:19px; }
+  html[data-text-size="large"] #detailTime{ font-size:13px; }
+  *{box-sizing:border-box;}
+  /* ボタンをタップした際にブラウザ標準で出る青い縁取り・ハイライトを消す。
+     消さないと、押した後もその場に留まるボタン（設定の位置選択など）で
+     このブラウザ標準の青が目立って残ってしまう。 */
+  button{ outline:none; -webkit-tap-highlight-color:transparent; color:inherit; font-family:inherit; }
+  /* input/textarea/selectも、ボタンと同じ理由（ブラウザ標準では周りの色を引き継がない）で
+     ダークモードだと見えなくなる不具合が繰り返し起きたため、共通の土台として一括で対応する。
+     個別の要素にさらに細かい指定をしている場合は、そちらが優先される。 */
+  input, textarea, select{
+    background:var(--paper); color:var(--ink); border-color:var(--line);
+    font-family:inherit;
+  }
+  button:focus{ outline:none; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    overscroll-behavior:none;
+  }
+  #app{ position:fixed; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column; }
+
+  /* ヘッダー */
+  #header{
+    background:var(--paper);
+    padding:10px 14px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line);
+    z-index:500;
+    flex-shrink:0;
+  }
+  #header h1{ font-size:15px; margin:0; font-weight:700; }
+  #header .count{ font-size:12px; color:var(--sub); }
+
+  /* 地図 */
+  #map{ flex:1; position:relative; z-index:1; }
+
+  /* ---------- 画面の四隅に、ボタン類を自動で重ならないよう積む仕組み ----------
+     position:fixedの数値を個別に決め打ちすると、機種やボタンの数によって
+     重なりが起きる（実際にズームボタンとモードメニューが重なっていた）。
+     四隅それぞれをflexの縦積みコンテナにし、そこに入れたものを上から
+     （下の隅は下から）順に自動で並べることで、重なりをなくす。 */
+  .corner-stack{
+    position:fixed; z-index:650;
+    display:flex; flex-direction:column; gap:8px;
+    pointer-events:none; /* 何も無い場所は地図へのタップをそのまま通す */
+    max-width:72vw;
+    max-height:calc(100vh - var(--header-h) - 16px); /* 入りきらない分は下のスクロールに譲る */
+    overflow-y:auto;
+  }
+  .corner-stack > *{ pointer-events:auto; flex-shrink:0; }
+  .corner-stack.pos-top-left{ top:calc(var(--header-h) + 8px); left:8px; align-items:flex-start; }
+  .corner-stack.pos-top-right{ top:calc(var(--header-h) + 8px); right:8px; align-items:flex-end; }
+  .corner-stack.pos-bottom-left{ bottom:12px; left:8px; align-items:flex-start; flex-direction:column-reverse; }
+  .corner-stack.pos-bottom-right{ bottom:12px; right:8px; align-items:flex-end; flex-direction:column-reverse; }
+
+  /* 中身が収まりきらず、スクロールが必要になった隅を目立たせる。
+     box-shadowはその要素自身のoverflow設定では切り取られないので、
+     スクロール枠の縁取りとして確実に見える。 */
+  .corner-stack.is-scrollable{
+    box-shadow:0 0 0 2px rgba(79,160,214,.4), 0 2px 10px rgba(0,0,0,.15);
+    border-radius:14px;
+  }
+  .corner-stack.is-scrollable::-webkit-scrollbar{ width:5px; }
+  .corner-stack.is-scrollable::-webkit-scrollbar-thumb{ background:rgba(79,160,214,.45); border-radius:3px; }
+  .corner-stack.is-scrollable::-webkit-scrollbar-track{ background:transparent; }
+
+  /* ---------- 画面焼き付き対策 ----------
+     ヘッダーや四隅のボタン類は、使用中ずっと同じ場所・同じ色で表示され続ける。
+     有機ELディスプレイの焼き付きを避けるため、数分おきにJSが1〜2pxだけ
+     こっそり位置をずらす（transition でなめらかに、かつ気づかれない程度に）。 */
+  #header, .corner-stack{ transition:transform 4s ease; }
+
+  .btn-group-panel{
+    background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+    display:flex; flex-direction:column; padding:4px; gap:4px;
+  }
+  .zoom-btn{
+    width:40px; height:40px; border:none; background:transparent; border-radius:10px;
+    font-size:20px; font-weight:700; color:var(--ink); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  .zoom-btn:active{ background:#f3f4f6; }
+
+  /* 横向き・画面が低い端末対策：縦積みだとメニューが画面からはみ出して
+     他の要素と重なるため、
+     ・アイコン類は1行2個までにして折り返す（高さを節約）
+     ・凡例（配達先／停車位置など）は横並びにして、上のメニュー用の縦の余白を確保する */
+  @media (max-height:480px){
+    .btn-group-panel{
+      flex-direction:row; flex-wrap:wrap;
+      width:92px; /* アイコン2個ぶんの幅。3個目からは自動で次の行へ折り返す */
+    }
+    .mode-btn{ width:40px; padding:6px 4px; }
+    .mode-btn span.mode-label{ display:none; }
+    .zoom-btn{ width:40px; height:40px; }
+    .corner-stack{ max-width:92vw; }
+    #legend{ display:flex; flex-direction:row; flex-wrap:wrap; gap:6px 14px; align-items:center; }
+  }
+
+  .corner-picker{ display:flex; background:#f3f4f6; border-radius:999px; padding:2px; flex-wrap:wrap; margin-bottom:16px; }
+
+  /* 現在地マーカー */
+  .me-dot{ width:16px; height:16px; border-radius:50%; background:var(--blue);
+    border:3px solid #fff; box-shadow:0 0 0 2px rgba(79,160,214,.5); }
+  .me-pulse{ position:absolute; top:-10px; left:-10px; width:36px; height:36px;
+    border-radius:50%; background:rgba(79,160,214,.25); animation:pulse 2s infinite; }
+  @keyframes pulse{ 0%{transform:scale(.5);opacity:1;} 100%{transform:scale(1.6);opacity:0;} }
+
+  /* 地点ピン */
+  .pin{ width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+    box-shadow:0 2px 5px rgba(0,0,0,.35); border:2px solid #fff; position:relative; }
+  .pin.provisional{ border:2px dashed #fff; opacity:.85; } /* 仮登録：点線の枠で「まだ本登録ではない」と分かるようにする */
+  .pin-inner{ position:absolute; top:6px; left:6px; width:14px; height:14px; border-radius:50%; background:#fff; }
+
+  /* ピン横の名前ラベル：ゼンリンの住宅地図のように、地図を見ただけで
+     「誰の場所か」が分かることを重視する。拡大しすぎると文字だらけになるため、
+     ある程度拡大したときだけ出す。設定でも表示/非表示を切り替えられる。 */
+  .pin-name-label{
+    display:none;
+    position:absolute; top:2px; left:32px; white-space:nowrap;
+    background:rgba(255,255,255,.92); color:#1f2937;
+    font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
+    box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
+  }
+  #map.zoom-close:not(.hide-name-labels) .pin-name-label{ display:block; }
+
+  /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
+  .building-name-label{
+    display:none;
+    transform:translate(-50%, -50%); white-space:nowrap;
+    background:rgba(255,255,255,.92); color:#1f2937;
+    font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
+    box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
+  }
+  #map.zoom-close:not(.hide-name-labels) .building-name-label{ display:block; }
+  .badge{ position:absolute; transform:rotate(45deg); font-size:12px; line-height:1;
+    background:#fff; border-radius:50%; width:16px; height:16px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  .badge-photo{ top:-6px; right:-8px; }
+  .badge-warn{ bottom:-6px; right:-8px; color:var(--red); }
+  .badge-base{ bottom:-6px; left:-8px; }
+  .badge-provisional{ top:-6px; left:-8px; font-size:9px; background:#8B5CF6; color:#fff; padding:1px 3px; border-radius:4px; transform:rotate(45deg); }
+
+  /* フローティングボタン */
+  .fab{
+    background:var(--paper); border:1px solid var(--line); border-radius:999px;
+    padding:10px 16px; font-size:13px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);
+    display:flex; align-items:center; gap:6px; cursor:pointer;
+  }
+  .fab.following{ background:var(--blue); border-color:var(--blue); color:#fff; } /* 追従中は一目で分かるよう色を変える */
+
+  /* 凡例 */
+  #legend{
+    background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:10px;
+    padding:8px 10px; font-size:11px; line-height:1.7; box-shadow:0 2px 8px rgba(0,0,0,.1);
+  }
+  #legend .row{ display:flex; align-items:center; gap:6px; }
+  #legend .dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* ヒント */
+  #hint{
+    position:fixed; top:64px; left:50%; transform:translateX(-50%);
+    background:rgba(31,41,55,.9); color:#fff; font-size:12px; padding:8px 14px; border-radius:999px;
+    z-index:600; white-space:nowrap; transition:opacity .4s;
+  }
+
+  /* ボトムシート共通 */
+  .sheet-overlay{
+    position:fixed; top:0; right:0; bottom:0; left:0; background:rgba(0,0,0,.35); z-index:900;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .sheet-overlay.open{ display:flex; }
+  /* 線・スタンプの編集画面は、開いたままでも地図側のドラッグ操作ができるようにする */
+  #drawingEditOverlay, #stampEditOverlay{ background:transparent; pointer-events:none; }
+  #drawingEditOverlay .sheet, #stampEditOverlay .sheet,
+  #drawingEditOverlay .mini-panel, #stampEditOverlay .mini-panel{ pointer-events:auto; }
+  .mini-panel{
+    background:var(--paper); border-radius:14px; padding:12px 14px;
+    box-shadow:0 4px 20px rgba(0,0,0,.25); max-width:340px;
+  }
+  .sheet{
+    background:var(--paper); width:100%; max-width:480px; border-radius:16px 16px 0 0;
+    padding:16px 18px calc(18px + env(safe-area-inset-bottom));
+    max-height:85vh; overflow-y:auto;
+    box-shadow:0 -4px 20px rgba(0,0,0,.25);
+    transition:background-color .2s ease;
+    position:relative;
+  }
+  .sheet h2{ margin:0 0 12px; font-size:16px; }
+  .sheet .handle{ width:36px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 12px; }
+  /* 開いたウィンドウの右上に置く、閉じる(✕)ボタン。下までスクロールしなくても閉じられるようにする */
+  .sheet-close-x{
+    position:absolute; top:12px; right:14px; z-index:5;
+    width:28px; height:28px; border-radius:50%; border:none;
+    background:#f3f4f6; color:var(--sub); font-size:14px; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  html[data-theme="dark"] .sheet-close-x{ background:#374151; color:var(--ink); }
+
+  /* 配達先/停車位置どちらの入力画面かを、スクロールしても見失わないよう
+     フォーム全体の背景色で常時わかるようにする（文字を読まなくても一目で判断できる） */
+  #newOverlay .sheet.type-delivery{ background:#fff7ed; }
+  #newOverlay .sheet.type-parking{ background:#eff6ff; }
+  #newOverlay .sheet.type-delivery input,
+  #newOverlay .sheet.type-delivery textarea,
+  #newOverlay .sheet.type-delivery select,
+  #newOverlay .sheet.type-parking input,
+  #newOverlay .sheet.type-parking textarea,
+  #newOverlay .sheet.type-parking select{ background:var(--paper); } /* 入力欄自体は白のまま見やすく */
+
+  /* 種類選択ボタンは上部に固定し、下の項目までスクロールしても見失わないようにする */
+  /* 登録・編集シート：ヘッダー(見出し・種類選択)／本文（スクロール）／フッター(ボタン)を分離。
+     こうすることで、スクロールバーが本文部分だけにかかり、ヘッダー・フッターにはかからない。 */
+  .sheet.sheet-flex{ display:flex; flex-direction:column; padding:0; max-height:85vh; }
+  .sheet-fixed-top{ flex-shrink:0; padding:16px 18px 10px; }
+  .sheet-scroll-body{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:0 18px 4px; }
+  .sheet-fixed-bottom{
+    flex-shrink:0; padding:10px 18px calc(10px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line);
+  }
+
+  .type-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .type-btn{
+    flex:1; padding:14px 8px; border-radius:10px; border:2px solid var(--line);
+    background:#fafafa; font-size:14px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
+    transition:background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:#fff; box-shadow:0 2px 8px rgba(232,134,46,.35); }
+  .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(79,160,214,.35); }
+
+  /* コンビニなどの目印：チェーンごとの色を左右で分けた丸いアイコンにする */
+  .landmark-badge{
+    width:28px; height:28px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 2px 6px rgba(0,0,0,.35); display:flex; overflow:hidden;
+  }
+  .landmark-badge .half{ flex:1; height:100%; }
+
+  label.field-label{ display:block; font-size:12px; color:var(--sub); margin:12px 0 6px; font-weight:600; }
+  textarea, input[type=file]{
+    width:100%; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:14px;
+    font-family:inherit; resize:vertical;
+  }
+  textarea{ min-height:70px; }
+
+  .attn-row{ display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; background:#fef2f2;
+    border-radius:10px; }
+  .attn-row input{ width:18px; height:18px; }
+  .attn-row span{ font-size:13px; color:#991b1b; }
+
+  #photoPreview{ margin-top:10px; max-width:100%; border-radius:10px; display:none; }
+  .thumb{ position:relative; width:90px; height:90px; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .thumb .thumb-remove{ position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:50%;
+    background:rgba(0,0,0,.6); color:#fff; border:none; font-size:12px; line-height:1; cursor:pointer; }
+  #detailPhotos img{ width:100%; border-radius:10px; display:block; }
+
+  .btn-row{ display:flex; gap:10px; margin-top:18px; }
+  .btn{
+    flex:1; padding:13px; border-radius:10px; border:none; font-size:14px; font-weight:700; cursor:pointer;
+  }
+  .btn-primary{ background:var(--ink); color:#fff; }
+  .btn-secondary{ background:#f3f4f6; color:var(--ink); }
+  .btn-danger{ background:#fef2f2; color:var(--red); }
+
+  /* 詳細シート */
+  .info-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:11px 0; border-bottom:1px solid var(--line); }
+  .info-row:last-child{ border-bottom:none; }
+  .info-row-label{ font-size:11px; color:var(--sub); margin-bottom:3px; }
+  .info-row-value{ font-size:14px; color:var(--ink); word-break:break-all; line-height:1.5; }
+  .copy-btn{ flex-shrink:0; background:#f3f4f6; border:none; border-radius:8px; padding:7px 11px;
+    font-size:12px; color:var(--ink); white-space:nowrap; font-weight:600; }
+  .copy-btn.copied{ background:#dcfce7; color:#166534; }
+  .detail-type{ display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:700;
+    padding:4px 10px; border-radius:999px; margin-bottom:10px; }
+  .detail-type.delivery{ background:#fff7ed; color:var(--orange); }
+  .detail-type.parking{ background:#eff6ff; color:var(--blue); }
+  .detail-warn{ display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--red);
+    background:#fef2f2; padding:4px 10px; border-radius:999px; margin-left:6px; font-weight:700; }
+  #detailPhoto{ width:100%; border-radius:10px; margin:10px 0; display:none; }
+  #detailMemo{ font-size:14px; line-height:1.6; white-space:pre-wrap; color:var(--ink); min-height:20px; }
+  #detailMemo.empty{ color:var(--sub); font-style:italic; }
+  #detailTime{ font-size:11px; color:var(--sub); margin-top:10px; }
+
+  /* モード切り替え・描画・スタンプ関連 */
+  .mode-btn{
+    border:none; background:transparent; padding:5px 0; border-radius:10px;
+    font-size:19px; font-weight:600; color:var(--sub); cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:1px; width:38px;
+  }
+  /* 絵文字自体の見た目の余白（フォント側の仕様でCSSの余白調整だけでは消せない）を、
+     拡大してボタン枠いっぱいに近づけることで目立たなくする */
+  .mode-icon{ display:inline-block; transform:scale(1.35); line-height:1; }
+  .mode-btn .mode-label{ font-size:8px; line-height:1; white-space:nowrap; margin-top:3px; }
+  .mode-btn.active{ background:var(--blue); color:#fff; }
+  #drawBar{ display:none; }
+  #drawBar.show{ display:flex; }
+  #stampBar.show{ display:flex; }
+  .color-swatch{
+    width:32px; height:32px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; position:relative;
+  }
+  .weight-swatch{ position:relative; }
+  /* 「選んだ色」「選んだ太さ」を、枠線の色だけに頼らず✓バッジでもはっきり示す。
+     矢印のチェックボックスと同じ考え方で、運転中などパッと見でも判断できるようにする。 */
+  .color-swatch.selected::after, .weight-swatch.selected::after{
+    content:'✓'; position:absolute; bottom:-5px; right:-5px;
+    width:17px; height:17px; border-radius:50%; background:var(--blue); color:#fff;
+    font-size:11px; font-weight:900; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .color-swatch.selected{ box-shadow:0 0 0 3px var(--blue); }
+  .style-btn{
+    border:none; background:transparent; padding:6px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; color:var(--sub); cursor:pointer;
+  }
+  .style-btn.selected{ background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .toggle-btn{
+    border:1px solid var(--line); background:#f9fafb; padding:8px 14px; border-radius:10px;
+    font-size:13px; font-weight:600; color:var(--sub); cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .toggle-btn .box{ font-size:15px; }
+  .toggle-btn.on{ background:#ecfdf5; border-color:#10b981; color:#047857; }
+  .weight-swatch{
+    width:32px; height:32px; border-radius:50%; border:2px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+  }
+  .weight-swatch span{ display:block; border-radius:50%; background:#1f2937; } /* 点は常に濃い色。テーマに関わらずスウォッチ自体が白背景のため見えるようにする */
+  .weight-swatch.selected{ border-color:var(--blue); border-width:3px; background:#eff6ff; } /* 選択中の目印は、テーマの文字色に頼らず常に同じ青にする */
+
+  /* よくある注意点タグ：長文を書かず、タップで選ぶだけにして一覧性を保つ */
+  .note-tag-btn{
+    padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+    font-size:12px; color:var(--ink); cursor:pointer; white-space:nowrap;
+  }
+  .note-tag-btn.selected{ background:#374151; color:#fff; border-color:#374151; }
+  .note-tag-chip{
+    display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px;
+    background:#374151; color:#fff; font-size:12px; white-space:nowrap;
+  }
+  .vertex-handle{
+    width:18px; height:18px; border-radius:50%; background:#fff; border:3px solid var(--ink);
+    box-shadow:0 1px 4px rgba(0,0,0,.4);
+  }
+  .stamp-pick{
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    border:2px solid transparent; border-radius:10px; padding:6px 8px; background:#fafafa; cursor:pointer;
+  }
+  .stamp-pick.selected{ border-color:var(--blue); background:#eef2ff; }
+  .stamp-pick .icon{ font-size:20px; }
+  .stamp-pick .label{ font-size:10px; color:var(--sub); }
+  .stamp-badge{
+    width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:20px; line-height:1; box-shadow:0 2px 5px rgba(0,0,0,.35); border:3px solid; background:#fff;
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="header">
+    <h1>配送マップ 試作1号機</h1>
+    <div class="count" id="pointCount">地点：0件</div>
+  </div>
+  <div id="batchModeBanner" style="display:none; flex-wrap:wrap; align-items:center; gap:10px;
+    background:rgba(37,99,235,.97); color:#fff; font-size:14px; font-weight:600; padding:10px 14px;
+    border-bottom:1px solid rgba(255,255,255,.2); flex-shrink:0;">
+    <span id="batchModeBannerText" style="line-height:1.4;">🚚 本便のみ表示中</span>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" id="batchRouteBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">🗺️ ルートを開く</button>
+      <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">解除</button>
+    </div>
+  </div>
+  <div id="map"></div>
+
+  <!-- お名前入力（初回は必須。閉じるボタンなし＝入力するまで先に進めない） -->
+  <div class="sheet-overlay" id="userNameOverlay" style="z-index:1000;">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h2>👤 お名前を入力してください</h2>
+      <p style="font-size:13px; color:var(--sub); line-height:1.6;">
+        誰が登録・削除したかを記録するために使います。あとで設定から変更できます。
+      </p>
+      <input type="text" id="userNameInput" placeholder="例）田中"
+        style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+      <div class="btn-row">
+        <button class="btn btn-primary" id="saveUserNameBtn" style="width:100%;">始める</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 画面の四隅：ここに入れた要素は自動で縦に並び、重ならない -->
+<div id="cornerTopLeft" class="corner-stack pos-top-left"></div>
+<div id="cornerTopRight" class="corner-stack pos-top-right"></div>
+<div id="cornerBottomLeft" class="corner-stack pos-bottom-left"></div>
+<div id="cornerBottomRight" class="corner-stack pos-bottom-right"></div>
+
+<!-- 地図の「外」に固定表示するボタン・表示類。地図の内部に置くと、
+     Android端末で地図の描画に隠れてしまうことがあるため、外に出している。
+     実際にどの隅に置くかは、初期化時にJS(applyLayoutPositions)が
+     四隅コンテナのいずれかへ移動させる。 -->
+<div id="hint" style="position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:600;">
+  地図をタップして地点を登録できます
+</div>
+<div id="legend">
+  <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
+  <div class="row"><span class="dot" style="background:var(--blue)"></span>停車位置</div>
+  <div class="row">📷 写真あり</div>
+  <div class="row">⚠️ 注意地点</div>
+  <div class="row" id="hideDoneRow" style="display:none; margin-top:4px; padding-top:4px; border-top:1px solid var(--line);">
+    <label style="display:flex; align-items:center; gap:5px; cursor:pointer;">
+      <input type="checkbox" id="hideDoneToggle" /> 未完了のみ表示
+    </label>
+  </div>
+</div>
+<button class="fab" id="recenterBtn">📍 現在地に戻る</button>
+<div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
+  <span id="traceRecDot" title="足跡の記録状況" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6b7280; flex-shrink:0; transition:background .3s;"></span>
+  <span id="gpsStatusText">現在地：確認中…</span>
+</div>
+<div id="offlineStatus" style="display:none; background:rgba(180,83,9,.9); color:#fff; font-size:11px; padding:4px 8px; border-radius:8px;">
+  📴 オフライン中（保存済みの地図のみ表示）
+</div>
+<div id="zoomStatus" style="background:rgba(17,24,39,.75); color:#fff; font-size:11px; padding:4px 8px; border-radius:8px;">
+  拡大率：-
+</div>
+
+<!-- 拡大縮小ボタン（自作。Leaflet標準のものは使わず、見た目をアプリに揃えている） -->
+<div id="zoomBar" class="btn-group-panel">
+  <button id="zoomInBtn" class="zoom-btn" title="拡大">＋</button>
+  <button id="zoomOutBtn" class="zoom-btn" title="縮小">－</button>
+</div>
+
+<!-- モード切り替え -->
+<div id="modeBar" class="btn-group-panel">
+  <button class="mode-btn active" data-mode="view" title="地図操作"><span class="mode-icon">🗺️</span><span class="mode-label">地図</span></button>
+  <button class="mode-btn" data-mode="point" title="地点"><span class="mode-icon">📍</span><span class="mode-label">地点</span></button>
+  <button class="mode-btn" data-mode="draw" title="描画"><span class="mode-icon">🖊️</span><span class="mode-label">描画</span></button>
+  <button class="mode-btn" data-mode="stamp" title="スタンプ"><span class="mode-icon">🚧</span><span class="mode-label">スタンプ</span></button>
+  <button class="mode-btn" data-mode="edit" title="修整"><span class="mode-icon">✏️</span><span class="mode-label">修整</span></button>
+</div>
+
+<!-- 元に戻す・検索・設定 -->
+<div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+  <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:#fff;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む<span id="batchQuickCount" style="display:none; margin-left:4px; background:#fff; color:var(--blue); border-radius:999px; padding:1px 6px; font-size:11px;"></span></button>
+  <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
+  <button id="searchBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🔍 検索</button>
+  <button id="trashBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🗑️ ゴミ箱</button>
+  <button id="settingsBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">⚙️ 設定</button>
+</div>
+
+<!-- 描画モード用サブツールバー -->
+<button id="uiHideToggleBtn" title="メニューを一時的に隠す" style="display:none; position:fixed; z-index:960;
+  height:22px; border:none; border-radius:8px; padding:0;
+  background:rgba(90,90,90,.75); color:#fff; font-size:11px; font-weight:600; line-height:1;
+  box-shadow:0 2px 6px rgba(0,0,0,.25);">▾ 隠す</button>
+
+<div id="drawBar" style="display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:650;
+  background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+  padding:8px 10px; flex-direction:column; gap:8px; max-width:92vw;">
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center;">
+    <div class="corner-picker" style="margin-bottom:0; flex-wrap:wrap;">
+      <button class="style-btn" id="stylePanBtn" data-style="pan">✋ 移動</button>
+      <button class="style-btn selected" id="styleFreeBtn" data-style="free">✏️ フリーハンド</button>
+      <button class="style-btn" id="styleStraightBtn" data-style="straight">📐 直線でつなぐ</button>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;">
+    <button class="color-swatch selected" data-color="#D6453F" style="background:#D6453F"></button>
+    <button class="color-swatch" data-color="#EAB854" style="background:#EAB854"></button>
+    <button class="color-swatch" data-color="#4FA0D6" style="background:#4FA0D6"></button>
+    <span style="width:1px; height:20px; background:var(--line);"></span>
+    <button class="weight-swatch selected" data-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+    <button class="weight-swatch" data-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+    <button class="weight-swatch" data-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+    <span style="width:1px; height:20px; background:var(--line);"></span>
+    <button class="toggle-btn" id="arrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+  </div>
+  <div id="drawHintRow" style="font-size:11px; color:var(--sub); text-align:center;">指でなぞって描けます</div>
+  <div id="straightActionsRow" style="display:none; gap:8px; justify-content:center;">
+    <button class="btn btn-secondary" id="undoVertexBtn" style="padding:8px 14px; font-size:12px;">取消</button>
+    <button class="btn btn-primary" id="finishStraightBtn" style="padding:8px 14px; font-size:12px;">✓ 決定</button>
+  </div>
+</div>
+
+<!-- スタンプモード用サブツールバー -->
+<div id="stampBar" style="display:none; position:fixed; top:64px; left:70px; right:70px; z-index:650;
+  background:rgba(255,255,255,.97); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.15);
+  padding:8px; display:none; flex-wrap:wrap; gap:6px; justify-content:center;"></div>
+
+<!-- 描いた線の編集シート -->
+<div class="sheet-overlay" id="drawingEditOverlay" style="align-items:flex-start; justify-content:center; padding-top:64px;">
+  <div class="mini-panel">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <button class="color-swatch" data-edit-color="#D6453F" style="background:#D6453F"></button>
+      <button class="color-swatch" data-edit-color="#EAB854" style="background:#EAB854"></button>
+      <button class="color-swatch" data-edit-color="#4FA0D6" style="background:#4FA0D6"></button>
+      <span style="width:1px; height:22px; background:var(--line);"></span>
+      <button class="weight-swatch" data-edit-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+      <button class="weight-swatch" data-edit-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+      <button class="weight-swatch" data-edit-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+      <span style="width:1px; height:22px; background:var(--line);"></span>
+      <button class="toggle-btn" id="editArrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+    </div>
+    <div id="drawingCreatorInfo" style="font-size:11px; color:var(--sub); margin-top:8px;"></div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-danger" id="deleteDrawingBtn" style="padding:9px;">削除</button>
+      <button class="btn btn-secondary" id="closeDrawingEditBtn" style="padding:9px;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- スタンプの編集シート -->
+<div class="sheet-overlay" id="stampEditOverlay" style="align-items:flex-start; justify-content:center; padding-top:64px;">
+  <div class="mini-panel">
+    <div style="font-size:13px; font-weight:600; margin-bottom:6px;" id="stampEditTitle">スタンプ</div>
+    <div id="stampCreatorInfo" style="font-size:11px; color:var(--sub); margin-bottom:6px;"></div>
+    <div id="stampRotateRow" class="btn-row" style="display:none; margin-top:0;">
+      <button class="btn btn-secondary" id="rotateLeftBtn" style="padding:9px;">⟲ 回転</button>
+      <button class="btn btn-secondary" id="rotateRightBtn" style="padding:9px;">⟳ 回転</button>
+    </div>
+    <div style="margin-top:10px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--sub);">
+        <input type="checkbox" id="stampTimeEnableInput" /> 通行できる時間帯を指定する
+      </label>
+      <div id="stampTimeInputs" style="display:none; gap:6px; align-items:center; margin-top:6px;">
+        <input type="time" id="stampTimeStartInput" style="flex:1; min-width:0; padding:6px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+        <span style="color:var(--sub);">〜</span>
+        <input type="time" id="stampTimeEndInput" style="flex:1; min-width:0; padding:6px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="btn btn-danger" id="deleteStampBtn" style="padding:9px;">削除</button>
+      <button class="btn btn-secondary" id="closeStampEditBtn" style="padding:9px;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新規登録シート -->
+<div class="sheet-overlay" id="newOverlay">
+  <div class="sheet sheet-flex">
+    <button class="sheet-close-x" id="closeNewXBtn">✕</button>
+    <div class="sheet-fixed-top">
+      <div class="handle"></div>
+      <h2 id="newSheetTitle">新しい地点を登録</h2>
+
+      <div class="type-row" id="typeRow">
+        <label class="field-label" style="width:100%; margin:0 0 6px;">種類を選んでください</label>
+        <div class="type-btn delivery" id="btnDelivery" data-type="delivery">📦 配達先</div>
+        <div class="type-btn parking" id="btnParking" data-type="parking">🅿️ 停車位置</div>
+      </div>
+    </div>
+
+    <div class="sheet-scroll-body">
+      <label class="field-label">ふりがな（任意・すぐ打てる方をここに）</label>
+      <input type="text" id="nameKanaInput" placeholder="例）たなか"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">名前・呼び名（漢字・任意。あとで分かれば入力）</label>
+      <input type="text" id="nameInput" placeholder="例）田中様／○○マンション301"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">住所（任意）</label>
+      <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
+      <input type="text" id="addressKanaInput" placeholder="例）うちさんげ"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <div id="parkingCategoryWrap" style="display:none;">
+        <label class="field-label">停車位置の種類</label>
+        <div class="corner-picker" id="parkingCategoryPicker" style="margin-bottom:16px;"></div>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; cursor:pointer;">
+          <input type="checkbox" id="isBaseInput" style="width:18px; height:18px;" />
+          <span style="font-size:13px;">🚩 拠点として登録する（ルートを組む時、出発地点にいつでも選べるようになります）</span>
+        </label>
+      </div>
+
+      <div id="linkedParkingWrap" style="display:none;">
+        <label class="field-label">停車位置（任意）</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:8px;">
+          <input type="checkbox" id="parkHereInput" /> ここに停車できる（配達先と同じ場所）
+        </label>
+        <div id="parkingSelectWrap">
+          <select id="linkedParkingSelect"
+            style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);">
+            <option value="">選択しない</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="field-label">写真（任意・複数枚追加できます）</label>
+      <input type="file" id="photoInput" accept="image/*" />
+      <div id="photoPreviewList" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;"></div>
+
+      <button type="button" class="btn btn-secondary" id="ocrPhotoBtn" style="width:100%; margin-top:8px; padding:9px; font-size:13px;">
+        📷 表札・住所プレートをスキャン
+      </button>
+      <div id="ocrResultBox" style="display:none; margin-top:8px; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 12px;">
+        <div id="ocrStatusText" style="font-size:12px; color:var(--sub);"></div>
+        <div id="ocrSplitRow" style="display:none;">
+          <label class="field-label" style="margin-top:8px;">👤 名前（候補・直接編集できます）</label>
+          <input type="text" id="ocrGuessName"
+            style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+          <label class="field-label" style="margin-top:8px;">📍 住所（候補・直接編集できます）</label>
+          <input type="text" id="ocrGuessAddress"
+            style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+          <button type="button" class="btn btn-primary" id="ocrApplyBothBtn" style="width:100%; margin-top:8px; padding:8px; font-size:13px;">
+            ✓ この内容を名前・住所欄に反映する
+          </button>
+        </div>
+        <details style="margin-top:8px;">
+          <summary style="font-size:11px; color:var(--sub); cursor:pointer;">読み取った全文を見る（うまく分かれない場合）</summary>
+          <textarea id="ocrResultText" rows="2" style="width:100%; margin-top:4px; font-size:12px;"></textarea>
+        </details>
+      </div>
+
+      <input type="file" id="ocrPhotoInput" accept="image/*" capture="environment" style="display:none;" />
+
+      <div id="boxPasswordWrap">
+        <label class="field-label">宅配BOXパスワード（任意）</label>
+        <input type="text" id="boxPasswordInput" placeholder="例）1234＃" inputmode="text"
+          autocapitalize="off" autocorrect="off" spellcheck="false"
+          style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      </div>
+
+      <label class="field-label">よくある注意点（複数選べます）</label>
+      <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
+
+      <label class="field-label">その他注意書き（任意・タグに無い内容のみ）</label>
+      <textarea id="memoInput" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
+
+      <div class="attn-row">
+        <input type="checkbox" id="attnInput" />
+        <span>⚠️ 注意が必要な地点（通行注意・軽バン不可など）</span>
+      </div>
+    </div>
+
+    <div class="sheet-fixed-bottom">
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn btn-secondary" id="cancelNewBtn">キャンセル</button>
+        <button class="btn btn-primary" id="saveNewBtn">保存する</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細シート -->
+<div class="sheet-overlay" id="detailOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeDetailXBtn">✕</button>
+    <div class="handle"></div>
+    <div id="detailNameKana" style="display:none; font-size:12px; color:var(--sub); background:var(--bg); padding:2px 8px; border-radius:6px; margin-bottom:4px;"></div>
+    <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
+    <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
+    <button type="button" id="movePointBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">📍 この地点を移動する</button>
+    <button type="button" id="addToBatchBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">🚚 便に追加</button>
+    <button type="button" id="confirmProvisionalBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px; margin-left:6px; background:#8B5CF6; color:#fff;">📌 仮登録中（タップで本登録に）</button>
+    <div id="detailTypeWrap"></div>
+
+    <div style="margin-top:6px;">
+      <div class="info-row" id="detailAddressRow" style="display:none; flex-wrap:wrap;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">📍 住所</div>
+          <div class="info-row-value" id="detailAddress"></div>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="copy-btn" id="copyAddressBtn">📋 コピー</button>
+          <button class="copy-btn" id="openGoogleMapsBtn">🗺️ Google Maps</button>
+        </div>
+      </div>
+
+      <div class="info-row" id="detailParkingRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">🚗 停車位置</div>
+          <div class="info-row-value" id="detailParkingName" style="font-weight:600;"></div>
+          <div style="font-size:12px; color:var(--sub); margin-top:3px;" id="detailParkingSub"></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+          <button class="btn btn-secondary" id="showParkingRelationBtn" style="display:none; padding:7px 10px; font-size:12px;">🗺️ 見る</button>
+          <button class="copy-btn" id="parkingSecondaryBtn" style="display:none; font-size:11px; padding:5px 8px;"></button>
+        </div>
+      </div>
+      <div id="routeLinkOptionsRow" style="display:none; padding:11px 0; border-bottom:1px solid var(--line);">
+        <div class="info-row-label">🧭 経路（停車位置から配達先までの道順、任意）</div>
+        <select id="existingRouteSelect" style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--paper); color:var(--ink); margin-bottom:6px;">
+          <option value="">既存の線から選ぶ</option>
+        </select>
+        <button class="btn btn-secondary" id="drawNewRouteBtn" style="width:100%; padding:8px; font-size:12px;">✏️ 新しく描いてここに紐づける</button>
+      </div>
+
+      <div class="info-row" id="detailBoxPasswordRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">🔒 宅配BOXパスワード</div>
+          <div class="info-row-value" id="detailBoxPassword" style="font-weight:700; letter-spacing:0.05em;"></div>
+        </div>
+        <button class="copy-btn" id="copyBoxPasswordBtn">📋 コピー</button>
+      </div>
+
+      <div class="info-row" id="detailTagsRow" style="display:none;">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">⚠️ 注意点</div>
+          <div id="detailTags" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:3px;"></div>
+        </div>
+      </div>
+
+      <div class="info-row" id="detailMemoRow">
+        <div style="flex:1; min-width:0;">
+          <div class="info-row-label">📝 その他注意書き</div>
+          <div class="info-row-value" id="detailMemo"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-secondary" id="addParkingLinkBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
+      🅿️ 停車位置を新しく登録してここに紐づける
+    </button>
+
+    <!-- 配達完了・不在などのステータス機能は今は使わない方針のため非表示にしている。
+         データ自体は残しているので、必要になれば表示を戻すだけで復活できる。 -->
+    <div style="display:none;">
+      <label class="field-label">状況</label>
+      <div class="btn-row" id="statusRow" style="margin-top:0;">
+        <button class="btn btn-secondary status-btn" data-status="pending" style="padding:9px 4px; font-size:12px;">⬜ 未対応</button>
+        <button class="btn btn-secondary status-btn" data-status="done" style="padding:9px 4px; font-size:12px;">✅ 完了</button>
+        <button class="btn btn-secondary status-btn" data-status="absent" style="padding:9px 4px; font-size:12px;">🔁 不在</button>
+      </div>
+      <div id="redeliveryRow" style="margin-top:8px; margin-bottom:12px;">
+        <label class="field-label" style="margin-top:0;">再配達予定日</label>
+        <input type="date" id="redeliveryDateInput"
+          style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      </div>
+    </div>
+
+    <div id="detailPhotos" style="display:flex; flex-direction:column; gap:8px; margin-top:6px;"></div>
+    <div id="detailTime"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="editBtn">編集する</button>
+      <button class="btn btn-danger" id="deleteBtn">削除</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeDetailBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 検索シート -->
+<div class="sheet-overlay" id="searchOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>🔍 地点を検索</h2>
+    <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
+      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+    <div id="batchBar" style="display:none; flex-direction:column; gap:8px;
+      background:var(--bg); border-radius:10px; padding:10px; margin-bottom:10px; font-size:12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <span id="batchCountText">🚚 今回の便：0件選択中</span>
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="copy-btn" id="batchClearBtn" style="font-size:11px;">全クリア</button>
+          <button type="button" class="btn btn-primary" id="batchApplyBtn" style="padding:6px 10px; font-size:11px;">地図に表示</button>
+        </div>
+      </div>
+      <div id="batchItemList" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label style="flex-shrink:0; color:var(--sub);">🚩 出発地点</label>
+        <select id="batchOriginSelect" style="flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; background:var(--paper); color:var(--ink);"></select>
+      </div>
+    </div>
+    <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
+    <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
+      見つかりませんでした
+    </div>
+    <button type="button" class="btn btn-secondary" id="geocodeSearchBtn" style="width:100%; margin-top:4px; padding:9px; font-size:13px;">
+      🗺️ この住所を地図で探す
+    </button>
+    <div id="geocodeStatusText" style="font-size:12px; color:var(--sub); text-align:center; margin-top:6px;"></div>
+    <div id="geocodeResultRow" style="display:none; margin-top:8px; background:var(--bg); border-radius:10px; padding:8px 10px;">
+      <div id="geocodeResultLabel" style="font-size:12px; color:var(--ink); margin-bottom:6px;"></div>
+      <div class="btn-row" style="margin-top:0;">
+        <button type="button" class="btn btn-secondary" id="geocodeViewBtn" style="padding:7px; font-size:12px;">🗺️ 地図で見る</button>
+        <button type="button" class="btn btn-primary" id="geocodeAddBatchBtn" style="padding:7px; font-size:12px;">➕ 便に追加</button>
+      </div>
+      <div style="border-top:1px solid var(--line); margin:8px 0 6px;"></div>
+      <button type="button" id="geocodeProvisionalBtn" style="width:100%; padding:9px; font-size:13px; font-weight:700;
+        background:#8B5CF6; color:#fff; border:none; border-radius:10px;">📌 まだ登録していない場所として仮登録する</button>
+      <p style="font-size:11px; color:var(--sub); margin:4px 0 0;">現地に着いたら、詳細画面から内容を入力・保存すれば本登録になります</p>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- データ読み込みの確認 -->
+<div class="sheet-overlay" id="importConfirmOverlay">
+  <div class="sheet" style="max-width:380px;">
+    <div class="handle"></div>
+    <h2>📥 データを読み込みます</h2>
+    <p id="importSummaryText" style="font-size:13px; color:var(--sub); line-height:1.7; white-space:pre-line;"></p>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="importMergeBtn">追加する</button>
+      <button class="btn btn-danger" id="importReplaceBtn">置き換える</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="importCancelBtn">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- 汎用の削除確認（連打で誤って削除しないよう、表示直後はボタンを少し押せなくする） -->
+<div class="sheet-overlay" id="genericConfirmOverlay">
+  <div class="sheet" style="max-width:340px;">
+    <div class="handle"></div>
+    <h2 id="genericConfirmTitle">⚠️ 削除しますか？</h2>
+    <p id="genericConfirmMessage" style="font-size:13px; color:var(--sub); line-height:1.6;"></p>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="genericConfirmCancelBtn">キャンセル</button>
+      <button class="btn btn-danger" id="genericConfirmOkBtn">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ゴミ箱 -->
+<!-- OCR処理中の全画面表示（フォームの下の方が見えず「反応がない」ように見えるのを防ぐ） -->
+<div class="sheet-overlay" id="ocrProcessingOverlay" style="background:rgba(0,0,0,.75); align-items:center; z-index:1000;">
+  <div style="text-align:center; color:#fff;">
+    <div style="font-size:32px;">🔎</div>
+    <div id="ocrProcessingText" style="margin-top:10px; font-size:14px;">文字を読み取っています…</div>
+  </div>
+</div>
+
+<!-- 写真から一部分だけを指でなぞって囲む画面（OCR・写真添付の両方で共用） -->
+<div class="sheet-overlay" id="ocrCropOverlay" style="background:rgba(0,0,0,.9); align-items:center;">
+  <div style="width:100%; max-width:480px; padding:16px;">
+    <div id="ocrCropStage" style="position:relative; width:100%; height:50vh; touch-action:none; overflow:hidden; border-radius:12px; background:#000;">
+      <img id="ocrCropImage" style="width:100%; height:100%; object-fit:contain; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none;" />
+      <div id="ocrCropRect" style="position:absolute; border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.55); display:none; pointer-events:none;"></div>
+    </div>
+    <p id="ocrCropInstruction" style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
+      指でなぞって、住所・名前が書かれた部分だけを囲んでください
+    </p>
+    <div id="ocrCropStatus" style="color:#fff; text-align:center; font-size:13px; min-height:18px; margin-top:4px;"></div>
+    <div style="display:flex; justify-content:center; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="ocrCropCancelBtn" style="padding:12px 18px;">キャンセル</button>
+      <button class="btn btn-secondary" id="ocrCropUseAsIsBtn" style="display:none; padding:12px 18px;">そのまま使う</button>
+      <button class="btn btn-primary" id="ocrCropConfirmBtn" style="padding:12px 18px; font-size:14px;">この範囲を読み取る</button>
+    </div>
+  </div>
+</div>
+
+<!-- 表札・住所プレートのスキャン用カメラ画面 -->
+<div class="sheet-overlay" id="ocrScanOverlay" style="background:rgba(0,0,0,.9); align-items:center;">
+  <div style="width:100%; max-width:480px; padding:16px;">
+    <video id="ocrVideo" autoplay playsinline muted style="width:100%; border-radius:12px; background:#000; display:block;"></video>
+    <canvas id="ocrCanvas" style="display:none;"></canvas>
+    <p style="color:#fff; text-align:center; font-size:12px; margin:10px 0 0;">
+      表札・住所プレートに近づいて、まっすぐ大きく写してください
+    </p>
+    <div id="ocrScanStatus" style="color:#fff; text-align:center; font-size:13px; min-height:18px; margin-top:4px;"></div>
+    <div style="display:flex; justify-content:center; gap:12px; margin-top:14px;">
+      <button class="btn btn-secondary" id="ocrScanCancelBtn" style="padding:12px 22px;">キャンセル</button>
+      <button class="btn btn-primary" id="ocrScanCaptureBtn" style="padding:12px 30px; font-size:15px;">📸 読み取る</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="trashOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeTrashXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>🗑️ ゴミ箱</h2>
+    <p id="trashRetentionNote" style="font-size:12px; color:var(--sub); margin-top:-6px;"></p>
+    <div id="trashList" style="display:flex; flex-direction:column; gap:8px; max-height:55vh; overflow-y:auto;"></div>
+    <div id="trashEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
+      ゴミ箱は空です
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeTrashBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 設定シート -->
+<div class="sheet-overlay" id="settingsOverlay">
+  <div class="sheet">
+    <button class="sheet-close-x" id="closeSettingsXBtn">✕</button>
+    <div class="handle"></div>
+    <h2>⚙️ 設定</h2>
+
+    <label class="field-label">お名前（登録・削除の記録に使われます）</label>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="settingUserNameInput" placeholder="例）田中"
+        style="flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      <button class="btn btn-secondary" id="saveSettingUserNameBtn" style="padding:9px 12px; font-size:13px;">保存</button>
+    </div>
+
+    <label class="field-label">データのバックアップ</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      機種変更やアプリの削除に備えて、地点・線・スタンプのデータをファイルに書き出せます。
+      別の端末で「読み込み」すれば、データを引き継げます。
+    </p>
+    <div class="btn-row" style="margin-top:0; margin-bottom:16px;">
+      <button class="btn btn-secondary" id="exportDataBtn">📤 書き出す</button>
+      <button class="btn btn-secondary" id="importDataBtn">📥 読み込む</button>
+    </div>
+    <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
+
+    <label class="field-label">画面の見た目</label>
+    <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="toggle-btn" id="darkModeToggleBtn"><span class="box">⬜</span> ダークモード</button>
+      <button class="toggle-btn" id="largeTextToggleBtn"><span class="box">⬜</span> 文字を大きくする</button>
+      <button class="toggle-btn" id="showNameLabelsToggleBtn"><span class="box">✅</span> 地図に名前を表示</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px;">
+      拡大するとピンの横に登録した名前が出るようにするか（住宅地図のように、誰の場所か一目で分かるようにする機能）。
+    </p>
+
+    <label class="field-label">新しく描く線の色（初期値）</label>
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button class="color-swatch selected" data-setting-color="#D6453F" style="background:#D6453F"></button>
+      <button class="color-swatch" data-setting-color="#EAB854" style="background:#EAB854"></button>
+      <button class="color-swatch" data-setting-color="#4FA0D6" style="background:#4FA0D6"></button>
+    </div>
+
+    <label class="field-label">新しく描く線の太さ（初期値）</label>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:16px;">
+      <button class="weight-swatch selected" data-setting-weight="3" title="細"><span style="width:6px;height:6px;"></span></button>
+      <button class="weight-swatch" data-setting-weight="6" title="中"><span style="width:10px;height:10px;"></span></button>
+      <button class="weight-swatch" data-setting-weight="10" title="太"><span style="width:14px;height:14px;"></span></button>
+    </div>
+
+    <label class="field-label">矢印（初期値）</label>
+    <div style="margin-bottom:6px;">
+      <button class="toggle-btn" id="settingArrowToggleBtn"><span class="box">⬜</span> 矢印</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:4px;">
+      ここで選んだ内容が、次に描画モードを開いたときの初期状態になります。描くときにその都度変更することもできます。
+    </p>
+
+    <label class="field-label">操作メニュー（🗺️📍🖊️🚧✏️）の位置</label>
+    <div class="corner-picker" id="modeBarPositionPicker">
+      <button class="style-btn selected" data-corner="top-left">左上</button>
+      <button class="style-btn" data-corner="top-right">右上</button>
+      <button class="style-btn" data-corner="bottom-left">左下</button>
+      <button class="style-btn" data-corner="bottom-right">右下</button>
+    </div>
+
+    <label class="field-label">拡大縮小ボタンの位置</label>
+    <div class="corner-picker" id="zoomBarPositionPicker">
+      <button class="style-btn" data-corner="top-left">左上</button>
+      <button class="style-btn selected" data-corner="top-right">右上</button>
+      <button class="style-btn" data-corner="bottom-left">左下</button>
+      <button class="style-btn" data-corner="bottom-right">右下</button>
+    </div>
+    <p style="font-size:11px; color:var(--sub); margin-top:-8px;">
+      同じ場所を選んでも重なりません。自動で縦に並びます。
+    </p>
+
+    <label class="field-label">時間帯別の通りにくさ（自分の走行記録から）</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      実際に走った記録を時間帯ごとに集め、地図に薄く色で重ねます（赤いほど遅かった目安）。
+      渋滞そのものの情報ではなく、あくまで過去の自分の記録に基づく参考情報です。
+      データが少ないうちはほとんど表示されません。
+    </p>
+    <div style="margin-bottom:8px;">
+      <button class="toggle-btn" id="traceHeatmapToggleBtn"><span class="box">⬜</span> 地図に表示する</button>
+    </div>
+    <div id="traceHeatmapHourWrap" style="display:none; margin-bottom:16px;">
+      <label class="field-label" style="margin-top:0;">表示する時間帯</label>
+      <select id="traceHeatmapHourSelect"
+        style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);"></select>
+    </div>
+
+    <label class="field-label" style="color:var(--red); margin-top:24px;">⚠️ 危険な操作</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータを消します。取り消せません。
+    </p>
+    <button class="btn btn-danger" id="deleteAllBtn" style="width:100%; margin-bottom:8px;">🗑️ すべて削除する</button>
+    <div id="deleteAllLogWrap" style="display:none; margin-bottom:16px;">
+      <label class="field-label" style="margin-top:0;">操作の記録</label>
+      <div id="deleteAllLogList" style="display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; font-size:11px; color:var(--sub);"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="closeSettingsBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- すべて削除の確認（パスワード必須）。settingsOverlayより後ろに置くことで、
+     設定画面の上に確実に重なって表示されるようにしている。 -->
+<div class="sheet-overlay" id="deleteAllOverlay">
+  <div class="sheet" style="max-width:380px;">
+    <div class="handle"></div>
+    <h2>⚠️ 本当にすべて削除しますか？</h2>
+    <p style="font-size:13px; color:var(--sub); line-height:1.6;">
+      地点・線・スタンプ・ゴミ箱を含む、すべてのデータが消えます。取り消せません。
+      続ける場合は、確認のためパスワードを入力してください。
+    </p>
+    <input type="password" id="deleteAllPasswordInput" placeholder="パスワード"
+      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:8px; background:var(--paper); color:var(--ink);" />
+    <div id="deleteAllErrorText" style="display:none; font-size:12px; color:var(--red); margin-bottom:8px;">
+      パスワードが違います。この操作は記録されます。
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="deleteAllNoBtn">いいえ</button>
+      <button class="btn btn-danger" id="deleteAllYesBtn">すべて削除します。</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const STORAGE_KEY = 'delivery-points-v1';
+const USER_NAME_KEY = 'delivery-user-name-v1';
+let currentUserName = '';
+
+function loadUserName(){
+  try {
+    currentUserName = localStorage.getItem(USER_NAME_KEY) || '';
+  } catch (e) {
+    currentUserName = '';
+  }
+  if (!currentUserName) {
+    document.getElementById('userNameOverlay').classList.add('open');
+  }
+}
+function saveUserName(name){
+  currentUserName = name.trim();
+  try { localStorage.setItem(USER_NAME_KEY, currentUserName); } catch (e) { console.error('名前の保存に失敗', e); }
+}
+document.getElementById('saveUserNameBtn').addEventListener('click', () => {
+  const val = document.getElementById('userNameInput').value.trim();
+  if (!val) {
+    document.getElementById('userNameInput').style.borderColor = 'var(--red)';
+    return;
+  }
+  saveUserName(val);
+  document.getElementById('userNameOverlay').classList.remove('open');
+});
+const TRASH_KEY = 'delivery-trash-v1';
+const TRASH_RETENTION_DAYS = 30; // 削除してからこの日数は復元できるようにしておく
+let trash = [];
+
+async function loadTrash(){
+  try {
+    const raw = localStorage.getItem(TRASH_KEY);
+    trash = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    trash = [];
+  }
+  const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const before = trash.length;
+  trash = trash.filter(t => t.deletedAt >= cutoff);
+  if (trash.length !== before) await saveTrash(); // 期限切れ分は読み込み時に掃除しておく
+}
+async function saveTrash(){
+  try {
+    localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
+  } catch (e) { console.error('ゴミ箱の保存に失敗', e); }
+}
+async function moveToTrash(itemType, data){
+  trash.unshift({ id: 'trash_' + Date.now() + '_' + Math.random().toString(36).slice(2,7), itemType, data, deletedAt: Date.now(), deletedBy: currentUserName });
+  await saveTrash();
+}
+async function restoreFromTrash(trashId){
+  const item = trash.find(t => t.id === trashId);
+  if (!item) return;
+  if (item.itemType === 'point') { points.push(item.data); await savePoints(); renderAllMarkers(); }
+  else if (item.itemType === 'drawing') { drawings.push(item.data); await saveDrawings(); renderAllDrawings(); }
+  else if (item.itemType === 'stamp') { stamps.push(item.data); await saveStamps(); renderAllStamps(); }
+  trash = trash.filter(t => t.id !== trashId);
+  await saveTrash();
+  renderTrashList();
+}
+const DRAWINGS_KEY = 'delivery-drawings-v1';
+const STAMPS_KEY = 'delivery-stamps-v1';
+const SETTINGS_KEY = 'delivery-draw-settings-v1';
+let points = [];          // {id, lat, lng, type, memo, photo, attention, createdAt}
+let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
+let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
+let map, myMarker, markersLayer, buildingOutlineLayer, traceHeatmapLayer, drawingsLayer, stampsLayer;
+let pendingLatLng = null;
+let pendingType = null;
+let pendingParkingCategory = 'general';
+function buildParkingCategoryPicker(){
+  const wrap = document.getElementById('parkingCategoryPicker');
+  wrap.innerHTML = '';
+  Object.keys(PARKING_CATEGORIES).forEach(key => {
+    const cat = PARKING_CATEGORIES[key];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'style-btn';
+    btn.dataset.category = key;
+    // コンビニ各社のように絵文字が無く色だけの場合は、色見本の丸を付けて表示する
+    const iconHtml = cat.emoji
+      ? cat.emoji
+      : `<span style="display:inline-block; width:10px; height:10px; border-radius:50%;
+           background:linear-gradient(to right, ${cat.colors[0]} 50%, ${cat.colors[1]} 50%); vertical-align:-1px;"></span>`;
+    btn.innerHTML = `${iconHtml} ${cat.label}`;
+    btn.addEventListener('click', () => {
+      pendingParkingCategory = key;
+      wrap.querySelectorAll('.style-btn').forEach(b => b.classList.toggle('selected', b.dataset.category === key));
+    });
+    wrap.appendChild(btn);
+  });
+}
+function setPendingParkingCategory(category){
+  pendingParkingCategory = category || 'general';
+  document.querySelectorAll('#parkingCategoryPicker .style-btn').forEach(b =>
+    b.classList.toggle('selected', b.dataset.category === pendingParkingCategory));
+}
+
+let pendingPhotos = []; // 複数枚の写真を扱う
+let selectedPointId = null;
+let parkingRelationLayer = null; // 「地図で位置関係を見る」で一時的に表示する線・マーカー
+let editingPointId = null; // nullなら新規登録、値が入っていれば既存地点の編集
+
+let currentMode = 'view'; // 'view'(地図操作) | 'point' | 'draw' | 'stamp' | 'edit'(修整)
+let pendingParkingLinkTargetId = null; // 「停車位置を新しく登録してここに紐づける」の対象
+let pendingPointMoveTargetId = null; // 「この地点を移動する」でタップ待ちにしている対象
+let pendingRouteLinkTargetId = null; // 「経路を新しく描いてここに紐づける」の対象
+let currentDrawColor = '#D6453F';
+let currentLineWeight = 3;
+let modeBarPosition = 'top-left';   // 操作メニューをどの隅に置くか
+let zoomBarPosition = 'top-right';  // ズームボタンをどの隅に置くか
+let drawStyle = 'free'; // 'pan'(移動) | 'free'(フリーハンド) | 'straight'(点から点へ直線)
+let arrowEnabled = false; // フリーハンド／直線のどちらにも付けられる矢印ON/OFF
+let darkModeEnabled = false;
+let largeTextEnabled = false;
+let traceHeatmapEnabled = false;
+let traceHeatmapHour = 'auto'; // 'auto'なら常に今の時間帯を使う。数値を選べば固定できる
+let showNameLabelsEnabled = true; // デフォルトはON（誰の場所か分かることを重視する方針のため）
+let currentStampType = 'no_entry';
+let selectedDrawingId = null;
+let selectedStampId = null;
+let lineDragState = null; // 線全体を移動中の状態 { d, startLatLng, originalPoints }
+let activeStrokePoints = null;
+let activeStrokeLine = null;
+let straightLineInProgress = null; // { points:[latlng,...], previewLine }
+let actionHistory = []; // 元に戻す用：{type:'point'|'drawing'|'stamp', id}
+
+// 長文を書かなくて済むよう、経験則としてよく出てくる注意点をタグ化しておく。
+// タグに無い内容だけ、下の自由記述欄に書いてもらう想定。
+const NOTE_TAGS = [
+  // 🚗 車に関する事
+  { id:'narrow_road',  emoji:'🚗', label:'道が狭い',       group:'car' },
+  { id:'parking_far',  emoji:'🅿️', label:'停車位置が遠い', group:'car' },
+  { id:'can_turn',     emoji:'🔄', label:'転回可能',       group:'car' },
+  { id:'back_in',      emoji:'↩️', label:'バックで進入',   group:'car' },
+  // 🏠 客先の情報
+  { id:'elderly',      emoji:'👴', label:'高齢者',         group:'customer' },
+  { id:'daytime_out',  emoji:'☀️', label:'日中不在がち',   group:'customer' },
+  { id:'autolock',     emoji:'🔐', label:'オートロック',   group:'customer' },
+  { id:'no_elevator',  emoji:'🛗', label:'エレベーター無し', group:'customer' },
+  { id:'stairs_normal',emoji:'🪜', label:'階段（通常）',   group:'customer' },
+  { id:'stairs_bump',  emoji:'🔼', label:'階段（段差）',   group:'customer' },
+  { id:'ramp',         emoji:'🛞', label:'スロープ',       group:'customer' },
+  { id:'bell_broken',  emoji:'🔔', label:'呼び鈴故障',     group:'customer' },
+  // 📌 その他
+  { id:'dog',          emoji:'🐕', label:'犬注意',         group:'other' },
+  { id:'dark',         emoji:'🌙', label:'暗いので注意',   group:'other' },
+  { id:'construction', emoji:'🚧', label:'付近工事中',     group:'other' },
+];
+const NOTE_TAG_GROUPS = [
+  { id:'car',      label:'🚗 車に関する事' },
+  { id:'customer', label:'🏠 客先の情報' },
+  { id:'other',    label:'📌 その他' },
+];
+let pendingTags = [];
+function buildNoteTagsUI(){
+  const wrap = document.getElementById('noteTagsWrap');
+  wrap.innerHTML = '';
+  NOTE_TAG_GROUPS.forEach(group => {
+    const groupTags = NOTE_TAGS.filter(t => t.group === group.id);
+    if (groupTags.length === 0) return;
+
+    const groupWrap = document.createElement('div');
+    groupWrap.style.cssText = 'width:100%; margin-bottom:4px;';
+
+    const label = document.createElement('div');
+    label.textContent = group.label;
+    label.style.cssText = 'font-size:11px; color:var(--sub); font-weight:600; margin-bottom:4px;';
+    groupWrap.appendChild(label);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px;';
+    groupTags.forEach(tag => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'note-tag-btn';
+      btn.dataset.tagId = tag.id;
+      btn.textContent = `${tag.emoji} ${tag.label}`;
+      btn.addEventListener('click', () => {
+        const idx = pendingTags.indexOf(tag.id);
+        if (idx === -1) pendingTags.push(tag.id); else pendingTags.splice(idx, 1);
+        btn.classList.toggle('selected', pendingTags.includes(tag.id));
+      });
+      row.appendChild(btn);
+    });
+    groupWrap.appendChild(row);
+    wrap.appendChild(groupWrap);
+  });
+}
+function setPendingTags(tags){
+  pendingTags = (tags || []).slice();
+  document.querySelectorAll('.note-tag-btn').forEach(btn => {
+    btn.classList.toggle('selected', pendingTags.includes(btn.dataset.tagId));
+  });
+}
+function noteTagLabel(id){
+  const tag = NOTE_TAGS.find(t => t.id === id);
+  return tag ? `${tag.emoji} ${tag.label}` : id;
+}
+// 表示する時は選んだ順ではなく、常に「車→客先→その他」の決まった順に揃える
+function sortTagsByGroup(tagIds){
+  if (!tagIds || tagIds.length === 0) return [];
+  const order = NOTE_TAGS.map(t => t.id);
+  return tagIds.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+const STAMP_TYPES = {
+  no_entry:  { emoji:'🚫', label:'進入禁止', color:'#D6453F' },
+  caution:   { emoji:'⚠️', label:'通行注意', color:'#EAB854' },
+  no_van:    { emoji:'🚐', label:'軽バン不可', color:'#D6453F' },
+  no_uturn:  { emoji:'↩️', label:'Uターン禁止', color:'#D6453F' },
+  one_way:   { emoji:'⬆️', label:'一方通行', color:'#4FA0D6' }
+};
+
+// 停車位置の種類：イオンの駐車場やガソリンスタンドのような、誰でも分かる目印になる
+// 大きな施設は、他の停車位置(住宅の前など)と見分けやすいよう別アイコンにする
+const PARKING_CATEGORIES = {
+  general:      { emoji:'🅿️', label:'一般（住宅前など）' },
+  mall:         { emoji:'🏬', label:'商業施設の駐車場' },
+  gas_station:  { emoji:'⛽', label:'ガソリンスタンド' },
+  other:        { emoji:'📍', label:'その他', pinColor:'#8B5CF6' }, // 紫。ピン自体の色を変えて目立たせる
+  // コンビニ各社：実際のチェーンの色に近い2色を、丸いアイコンの左右に分けて表示する
+  familymart:   { label:'ファミリーマート', colors:['#00A64C', '#FFFFFF'] },
+  seven_eleven: { label:'セブン-イレブン',   colors:['#EE1C25', '#00A64C'] },
+  lawson:       { label:'ローソン',         colors:['#0066CC', '#FFFFFF'] },
+  other_conv:   { label:'その他コンビニ',    colors:['#FFD400', '#DC143C'] }
+  // 飲食店は種類が定まったら追加する
+};
+
+// ---------- 画面焼き付き対策 ----------
+// スマホをホルダー等に固定して長時間同じ画面を表示し続ける使い方を想定し、
+// ヘッダーや四隅のボタン類の位置を数分おきに1〜2pxだけ、気づかれない範囲でずらす。
+// 地図本体は操作で常に動くので対象外（そもそも動くものは焼き付きにくい）。
+const BURN_IN_SHIFTS = [
+  {x:0,y:0}, {x:1,y:0}, {x:1,y:1}, {x:0,y:1},
+  {x:-1,y:1}, {x:-1,y:0}, {x:-1,y:-1}, {x:0,y:-1}, {x:1,y:-1}
+];
+let burnInShiftIndex = 0;
+function applyBurnInShift(){
+  burnInShiftIndex = (burnInShiftIndex + 1) % BURN_IN_SHIFTS.length;
+  const { x, y } = BURN_IN_SHIFTS[burnInShiftIndex];
+  const transform = `translate(${x}px, ${y}px)`;
+  const header = document.getElementById('header');
+  if (header) header.style.transform = transform;
+  document.querySelectorAll('.corner-stack').forEach(el => { el.style.transform = transform; });
+}
+function startBurnInProtection(){
+  setInterval(applyBurnInShift, 4 * 60 * 1000); // 4分おき
+}
+
+
+// #legend・#recenterBtn等の「常にこの隅」の要素と、#modeBar・#zoomBarのように
+// 設定で場所を選べる要素をまとめて、四隅のコンテナへ入れ直す。
+// どこに何を置いても、コンテナ側がflexで自動的に縦積みするので重ならない。
+const CORNER_ELS = {
+  'top-left': null, 'top-right': null, 'bottom-left': null, 'bottom-right': null
+};
+function initCornerRefs(){
+  CORNER_ELS['top-left'] = document.getElementById('cornerTopLeft');
+  CORNER_ELS['top-right'] = document.getElementById('cornerTopRight');
+  CORNER_ELS['bottom-left'] = document.getElementById('cornerBottomLeft');
+  CORNER_ELS['bottom-right'] = document.getElementById('cornerBottomRight');
+}
+function placeInCorner(el, corner){
+  const container = CORNER_ELS[corner] || CORNER_ELS['top-left'];
+  if (el && container) container.appendChild(el);
+}
+function applyLayoutPositions(){
+  // 常に固定の隅に置くもの
+  placeInCorner(document.getElementById('legend'), 'bottom-left');
+  placeInCorner(document.getElementById('recenterBtn'), 'bottom-right'); // 一番下（隅に近い側）
+  placeInCorner(document.getElementById('gpsStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('offlineStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('zoomStatus'), 'bottom-right');
+  placeInCorner(document.getElementById('utilityBar'), 'top-right');
+  // 設定で選べるもの
+  placeInCorner(document.getElementById('zoomBar'), zoomBarPosition);
+  placeInCorner(document.getElementById('modeBar'), modeBarPosition);
+
+  // 配置替えのあとに、実際の描画位置を測って高さ・取っ手の位置を決める
+  // （要素のサイズや位置が確定してから測るため、描画が一段落してから行う）
+  requestAnimationFrame(() => {
+    adjustCornerHeights();
+    positionUiHideHandle();
+  });
+}
+
+// 同じ側（左／右）の「上の隅」と「下の隅」は、互いの高さを知らずに独立して
+// 配置しているため、中身が多い・画面が低いと重なってしまうことがある。
+// そこで実際の画面上の位置を測り、上側の高さの上限を「下側にぶつからない範囲」に
+// 都度合わせる。アイコンのサイズを勘で調整するより確実に重なりを防げる。
+function adjustCornerHeights(){
+  const GAP = 10;
+  [['cornerTopLeft','cornerBottomLeft'], ['cornerTopRight','cornerBottomRight']].forEach(([topId, bottomId]) => {
+    const topEl = document.getElementById(topId);
+    const bottomEl = document.getElementById(bottomId);
+    if (!topEl || !bottomEl) return;
+    // 一旦上限をリセットしてから測る（前回の制限が残ったまま測ると縮み続けてしまうため）
+    topEl.style.maxHeight = '';
+    const topRect = topEl.getBoundingClientRect();
+    const bottomRect = bottomEl.getBoundingClientRect();
+    const available = bottomRect.top - topRect.top - GAP;
+    if (available > 0 && available < topRect.height) {
+      topEl.style.maxHeight = available + 'px';
+    }
+  });
+  // 実際に中身が収まりきらずスクロールが必要になった隅には、
+  // 見た目でひと目でわかるよう目立たせる（枠の色＋スクロールバーを強調）
+  document.querySelectorAll('.corner-stack').forEach(el => {
+    el.classList.toggle('is-scrollable', el.scrollHeight > el.clientHeight + 1);
+  });
+}
+
+
+// これにより、四隅のボタン類がヘッダーの下に自動でぴったり収まる（機種差を自動で吸収）。
+function updateHeaderHeightVar(){
+  const header = document.getElementById('header');
+  if (!header) return;
+  let height = header.offsetHeight;
+  // 「本便のみ表示中」バナーが出ている間は、その分も四隅メニューの開始位置に含める
+  // （そうしないと、バナーの上に四隅のボタンが重なって出てしまう）
+  const banner = document.getElementById('batchModeBanner');
+  if (banner && banner.style.display !== 'none') height += banner.offsetHeight;
+  document.documentElement.style.setProperty('--header-h', height + 'px');
+}
+
+
+window.addEventListener('DOMContentLoaded', async () => {
+  initCornerRefs();
+  updateHeaderHeightVar();
+  startBurnInProtection();
+  updateOfflineStatus();
+  loadUserName();
+  initMap();
+  buildStampBar();
+  buildNoteTagsUI();
+  buildParkingCategoryPicker();
+  await loadTraceGrid(); // 設定を反映する時点でヒートマップを描けるよう、先に読み込んでおく
+  loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
+  await loadPoints();
+  await loadDrawings();
+  await loadStamps();
+  await loadTrash();
+  await loadDeleteAllLog();
+  renderDeleteAllLog();
+  renderAllMarkers();
+  renderAllDrawings();
+  renderAllStamps();
+  startWatchingMyLocation();
+  setTimeout(() => {
+    const hintEl = document.getElementById('hint');
+    if (hintEl) hintEl.style.opacity = '0';
+  }, 4000);
+
+  // スマホでは画面のサイズが確定するタイミングが遅れることがあり、
+  // それより先に地図が作られると真っ白のまま表示されてしまうことがある。
+  // 少し時間を置いてから、地図の大きさを一度計算し直す。
+  setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+  window.addEventListener('resize', () => {
+    if (map) map.invalidateSize();
+    updateHeaderHeightVar();
+    requestAnimationFrame(() => { adjustCornerHeights(); positionUiHideHandle(); });
+  });
+  window.addEventListener('orientationchange', () => setTimeout(() => {
+    if (map) map.invalidateSize();
+    updateHeaderHeightVar();
+    adjustCornerHeights();
+    positionUiHideHandle();
+  }, 300));
+});
+
+// ---------- 地図タイルの読み込み ----------
+// 以前使っていたOpenStreetMapの無料タイルは、Webサイトではなく「アプリとして
+// 配布されたファイルから開く」使い方を利用規約で禁止しており、ブロックされてしまった
+// （content://で直接開く今の使い方は、まさにこれに該当する）。
+// 復旧するまでの応急処置として、キー不要で使えるEsriの地図に一時的に切り替えている。
+// 恒久対応：CARTO（OpenStreetMapベースの地図）の無料APIキーを取得し次第、
+// 下のTILE_URL等を書き換える。
+const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+const TILE_OPTIONS = {
+  maxZoom: 22,
+  maxNativeZoom: 19,
+  attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), (c) OpenStreetMap contributors'
+};
+
+// キャッシュに保存済みのタイルがあればそれを使う（＝以前OSMタイルを見ていた分は
+// 引き続きオフラインで使える）。ただし新規の書き込みは一旦止めている
+// （毎回imgタグでの表示リクエストと二重になり、それがブロックの一因になったため）。
+const TILE_CACHE_NAME = 'delivery-map-tiles-v1';
+const tileCacheSupported = ('caches' in window);
+
+async function fetchTileWithCache(url, img, done){
+  if (tileCacheSupported) {
+    try {
+      const cache = await caches.open(TILE_CACHE_NAME);
+      const cached = await cache.match(url);
+      if (cached) {
+        const blob = await cached.blob();
+        img.src = URL.createObjectURL(blob);
+        done(null, img);
+        return;
+      }
+    } catch (e) { /* キャッシュが読めない場合は、そのまま通常表示に進む */ }
+  }
+  img.onload = () => done(null, img);
+  img.onerror = (e) => done(e, img);
+  img.src = url;
+}
+
+const OfflineTileLayer = L.TileLayer.extend({
+  createTile: function(coords, done){
+    const img = document.createElement('img');
+    img.setAttribute('role', 'presentation');
+    img.alt = '';
+    const url = this.getTileUrl(coords);
+    fetchTileWithCache(url, img, done);
+    return img;
+  }
+});
+
+function updateOfflineStatus(){
+  const el = document.getElementById('offlineStatus');
+  if (!el) return;
+  el.style.display = navigator.onLine ? 'none' : 'block';
+}
+window.addEventListener('online', updateOfflineStatus);
+window.addEventListener('offline', updateOfflineStatus);
+
+// ---------- 地図の表示位置を覚えておく ----------
+// 何らかの理由で画面が再読み込みされた時に、毎回東京駅からやり直しにならないようにする。
+const MAP_VIEW_KEY = 'delivery-map-view-v1';
+function getLastMapView(){
+  try {
+    const raw = localStorage.getItem(MAP_VIEW_KEY);
+    if (raw) {
+      const v = JSON.parse(raw);
+      if (v && v.center && typeof v.zoom === 'number') return v;
+    }
+  } catch (e) { /* 保存データが無い・壊れている場合は初期値を使う */ }
+  return { center: [35.681236, 139.767125], zoom: 16 }; // 東京駅を仮の初期位置に
+}
+function saveCurrentMapView(){
+  try {
+    const c = map.getCenter();
+    localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ center: [c.lat, c.lng], zoom: map.getZoom() }));
+  } catch (e) { /* 保存に失敗しても致命的ではないので無視する */ }
+}
+
+function initMap(){
+  // ・zoomSnap:0 → 指を離したときに「区切りの良い拡大率」へ自動で吸着させない
+  // ・bounceAtZoomLimits:false → 拡大の上限(maxZoom)に達したとき、指を離すと
+  //   ワンテンポ弾んで縮小する演出をオフにする（これが今回の主な原因でした）
+  map = L.map('map', {
+    zoomControl:false, // 自作のズームボタン(zoomBar)を使うため、標準のものはオフにする
+    zoomSnap:0,
+    zoomDelta:1,
+    bounceAtZoomLimits:false
+  }).setView(getLastMapView().center, getLastMapView().zoom); // 前回見ていた場所（無ければ東京駅）を初期位置にする
+  new OfflineTileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+
+  // 何らかの理由で画面が再読み込みされても、直前に見ていた場所に戻れるよう、
+  // 地図を動かすたびに表示位置を保存しておく（頻繁に書き込みすぎないよう間引く）
+  let saveMapViewTimer = null;
+  map.on('moveend zoomend', () => {
+    clearTimeout(saveMapViewTimer);
+    saveMapViewTimer = setTimeout(saveCurrentMapView, 500);
+  });
+
+  markersLayer = L.layerGroup().addTo(map);
+  buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
+  traceHeatmapLayer = L.layerGroup().addTo(map); // 時間帯別の通りにくさの表示（見える化）
+  drawingsLayer = L.layerGroup().addTo(map);
+  stampsLayer = L.layerGroup().addTo(map);
+
+  // 地図の上に重ねて置いてあるボタン・凡例・ヒントをタップしたとき、
+  // その裏にある地図にまでタップが伝わって「新しい地点の登録」が誤って開かないようにする
+  [
+    document.getElementById('recenterBtn'),
+    document.getElementById('legend'),
+    document.getElementById('hint'),
+    document.getElementById('gpsStatus'),
+    document.getElementById('offlineStatus'),
+    document.getElementById('zoomStatus'),
+    document.getElementById('modeBar'),
+    document.getElementById('zoomBar'),
+    document.getElementById('drawBar'),
+    document.getElementById('stampBar'),
+    document.getElementById('utilityBar'),
+    document.getElementById('uiHideToggleBtn')
+  ].forEach(el => {
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  });
+
+  // 自作のズームボタン
+  document.getElementById('zoomInBtn').addEventListener('click', () => map.zoomIn());
+  document.getElementById('zoomOutBtn').addEventListener('click', () => map.zoomOut());
+
+  // 確認用：今の拡大率を表示する（地図データ自体の詳しさは19までで、それ以降は引き伸ばし表示）
+  const updateZoomStatus = () => {
+    const el = document.getElementById('zoomStatus');
+    if (!el) return;
+    const z = map.getZoom();
+    el.textContent = '拡大率：' + z.toFixed(2) + (z > 19 ? '（引き伸ばし表示）' : '');
+  };
+  map.on('zoom', updateZoomStatus);
+  map.on('zoomend', updateZoomStatus);
+  updateZoomStatus();
+
+  // 地図をある程度拡大したときだけ、ピンの横に名前を出す（誰の場所か一目で分かるようにする）
+  const NAME_LABEL_MIN_ZOOM = 17;
+  const updateNameLabelVisibility = () => {
+    document.getElementById('map').classList.toggle('zoom-close', map.getZoom() >= NAME_LABEL_MIN_ZOOM);
+  };
+  map.on('zoomend', updateNameLabelVisibility);
+  updateNameLabelVisibility();
+
+  // ---------- 選択中の線を全体ドラッグで移動する ----------
+  map.on('mousedown', () => {
+    if (lineDragState) map.dragging.disable(); // 線をつまんでいる間は地図が動かないようにする
+  });
+  map.on('mousemove', (e) => {
+    if (!lineDragState) return;
+    const dLat = e.latlng.lat - lineDragState.startLatLng.lat;
+    const dLng = e.latlng.lng - lineDragState.startLatLng.lng;
+    const d = lineDragState.d;
+    d.points = lineDragState.originalPoints.map(p => [p[0] + dLat, p[1] + dLng]);
+    updateDrawingRender(d);
+    // 端点ハンドルの位置も、線の移動に合わせて追従させる
+    vertexHandles.forEach((handle, i) => {
+      if (d.points[i]) handle.setLatLng(d.points[i]);
+    });
+  });
+  map.on('mouseup', async () => {
+    if (!lineDragState) return;
+    lineDragState.d.updatedAt = Date.now();
+    await saveDrawings();
+    lineDragState = null;
+    // 地図の動かし方を、今のモード・スタイルに応じた状態に戻す
+    if (currentMode === 'draw' && drawStyle !== 'pan') {
+      map.dragging.disable();
+    } else {
+      map.dragging.enable();
+    }
+  });
+
+  map.on('click', (e) => {
+    if (searchResultMarker) { map.removeLayer(searchResultMarker); searchResultMarker = null; } // 地図を操作したら検索の目印は消す
+    if (currentMode === 'point') {
+      if (pendingPointMoveTargetId) {
+        movePointTo(pendingPointMoveTargetId, e.latlng);
+        return;
+      }
+      openNewSheet(e.latlng);
+    }
+    else if (currentMode === 'stamp') placeStamp(e.latlng);
+    // 'draw'モードのときは、下のタッチ処理でタップとドラッグを区別して扱う
+  });
+
+  // ---------- 手書き線の描画（指でなぞる／タップ） ----------
+  // LeafletのmouseイベントはAndroidの実機で反応しないことがあるため、
+  // 画面のタッチ(touch)操作を直接検知する方式にする。
+  // また、「動かさずタップ」＝既存の線を選ぶ操作、「動かしてドラッグ」＝新しい線を描く操作、
+  // として区別することで、描画モード中でも既存の線を編集できるようにする。
+  const mapContainer = map.getContainer();
+  const DRAG_THRESHOLD_PX = 10;
+  let touchStartScreen = null;
+  let touchStartLatLng = null;
+  let dragStarted = false;
+
+  function eventToLatLng(evt){
+    const src = (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
+    const rect = mapContainer.getBoundingClientRect();
+    const point = L.point(src.clientX - rect.left, src.clientY - rect.top);
+    return map.containerPointToLatLng(point);
+  }
+  function eventScreenPoint(evt){
+    const src = (evt.changedTouches && evt.changedTouches[0]) ? evt.changedTouches[0]
+      : (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
+    // 画面全体の座標(clientX/Y)のままだと、地図の上にあるヘッダー分だけ
+    // 実際の地図コンテナの位置とズレる。eventToLatLngと同じくコンテナ基準に補正する。
+    const rect = mapContainer.getBoundingClientRect();
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+
+  function pointToSegmentDist(p, a, b){
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx*dx + dy*dy);
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t*dx), p.y - (a.y + t*dy));
+  }
+
+  // すでに描かれている線（アクティブなものに限らず）の近くを触っているかどうかを判定する。
+  // その上のタッチは、描画ではなく「長押しでの選択・移動・修整」の操作に譲るための判定。
+  function isNearAnyDrawing(screenPoint){
+    for (const d of drawings) {
+      const pixelPoints = d.points.map(p => map.latLngToContainerPoint(L.latLng(p)));
+      for (const pp of pixelPoints) {
+        if (Math.hypot(screenPoint.x - pp.x, screenPoint.y - pp.y) < 22) return true; // 端点付近
+      }
+      for (let i = 0; i < pixelPoints.length - 1; i++) {
+        if (pointToSegmentDist(screenPoint, pixelPoints[i], pixelPoints[i+1]) < 26) return true; // 線そのもの付近
+      }
+    }
+    return false;
+  }
+
+  // ---------- 長押し検出（実機のタッチ時間を自前で計測する方式）----------
+  // Leafletのlayer.on('mousedown', ...)に頼ると、スマホでは指を離した瞬間に
+  // mousedown/mouseupがまとめて発生してしまい「押している時間の長さ」を正しく測れない。
+  // そのため地図のcontainer要素へのtouchstart/touchmove/touchendを直接見て、
+  // 本物のタッチ時間を計測する方式にする。どのモードでも長押しで開けるようにする。
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD_PX = 10;
+  let longPressTimer = null;
+  let longPressStartScreen = null;
+
+  function clearLongPressTimer(){
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressStartScreen = null;
+  }
+
+  // その場所（画面座標）に地点／スタンプ／線があるかを調べる
+  function findHitObject(screenPoint){
+    for (const p of points) {
+      const anchor = map.latLngToContainerPoint(L.latLng(p.lat, p.lng));
+      // ピンのアイコンは、実際の緯度経度（=先端の位置）より見た目の丸い部分が
+      // 15pxほど上にあるため、判定もその位置に合わせてずらす
+      const visual = { x: anchor.x, y: anchor.y - 15 };
+      if (Math.hypot(screenPoint.x - visual.x, screenPoint.y - visual.y) < 24) {
+        return { type:'point', id:p.id };
+      }
+    }
+    for (const s of stamps) {
+      const pt = map.latLngToContainerPoint(L.latLng(s.lat, s.lng));
+      if (Math.hypot(screenPoint.x - pt.x, screenPoint.y - pt.y) < 22) {
+        return { type:'stamp', id:s.id };
+      }
+    }
+    for (const d of drawings) {
+      const pixelPoints = d.points.map(p => map.latLngToContainerPoint(L.latLng(p)));
+      for (const pp of pixelPoints) {
+        if (Math.hypot(screenPoint.x - pp.x, screenPoint.y - pp.y) < 22) return { type:'drawing', id:d.id };
+      }
+      for (let i = 0; i < pixelPoints.length - 1; i++) {
+        if (pointToSegmentDist(screenPoint, pixelPoints[i], pixelPoints[i+1]) < 26) return { type:'drawing', id:d.id };
+      }
+    }
+    return null;
+  }
+
+  function fireLongPress(hit){
+    if (hit.type === 'point') {
+      openDetailSheet(hit.id);
+    } else if (hit.type === 'stamp') {
+      const marker = stampMarkerById[hit.id];
+      if (marker && marker.dragging) marker.dragging.enable(); // 長押しで選ばれた間は、そのままドラッグで動かせるようにする
+      openStampEditSheet(hit.id);
+    } else if (hit.type === 'drawing') {
+      openDrawingEditSheet(hit.id);
+    }
+  }
+
+  function startLongPressTimer(screenPoint, hit){
+    clearLongPressTimer();
+    longPressStartScreen = screenPoint;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      fireLongPress(hit);
+    }, LONG_PRESS_MS);
+  }
+
+  function startTouch(evt){
+    if (evt.touches && evt.touches.length > 1) {
+      // 指が2本以上＝ピンチ操作とみなし、長押し・描画とも中断してLeaflet本来のズームに任せる
+      clearLongPressTimer();
+      cancelActiveStroke();
+      touchStartScreen = null;
+      return;
+    }
+    const sp = eventScreenPoint(evt);
+
+    // ---- 長押し判定はモードに関わらず行う（地点／スタンプ／線の上を触った場合のみ）----
+    const hit = findHitObject(sp);
+    if (hit) {
+      startLongPressTimer(sp, hit);
+      // PC（マウス）だと、ここでpreventDefaultしないとLeaflet標準の地図ドラッグが
+      // 同時に始まってしまい、長押しの前に地図が動いて判定が途中でキャンセルされる。
+      // ただしタッチ操作でこれをやると、ブラウザが本来タップ後に発生させる
+      // 「クリック相当のイベント」まで一緒に止まってしまい、修整モードでの
+      // タップによる選択（＝削除ボタンを出す入り口）が効かなくなってしまうため、
+      // マウスの場合だけに限定する。
+      if (!evt.touches) evt.preventDefault();
+    } else {
+      clearLongPressTimer();
+    }
+
+    // ---- ここから先は「描画」モードのときだけの処理 ----
+    if (currentMode !== 'draw' || drawStyle === 'pan') return;
+    if (isNearAnyDrawing(sp)) {
+      // すでにある線・端点の上のタッチは、描画としては扱わず、
+      // 長押しでの選択や、アクティブな線の移動・端点のドラッグに譲る
+      touchStartScreen = null;
+      return;
+    }
+    if (evt.touches) {
+      // タッチ操作のあとブラウザが追加で発生させる「互換用マウスイベント」を止め、
+      // 1回のタップが2回分として扱われてしまう不具合を防ぐ
+      evt.preventDefault();
+    }
+    touchStartScreen = sp;
+    touchStartLatLng = eventToLatLng(evt);
+    dragStarted = false;
+  }
+
+  function moveTouch(evt){
+    // 長押し判定中に指が動いたら（＝ドラッグ）長押し扱いをやめる
+    if (evt.touches && evt.touches.length > 1) {
+      clearLongPressTimer();
+    } else if (longPressTimer && longPressStartScreen) {
+      const sp = eventScreenPoint(evt);
+      if (Math.hypot(sp.x - longPressStartScreen.x, sp.y - longPressStartScreen.y) > LONG_PRESS_MOVE_THRESHOLD_PX) {
+        clearLongPressTimer();
+      }
+    }
+
+    if (currentMode !== 'draw' || !touchStartScreen || drawStyle !== 'free') return;
+    if (evt.touches && evt.touches.length > 1) {
+      // 描画の途中で2本目の指が触れた＝ピンチに切り替わったとみなし、描きかけの線を取り消す
+      cancelActiveStroke();
+      touchStartScreen = null;
+      return;
+    }
+    const p = eventScreenPoint(evt);
+    const dist = Math.hypot(p.x - touchStartScreen.x, p.y - touchStartScreen.y);
+
+    if (!dragStarted && dist > DRAG_THRESHOLD_PX) {
+      dragStarted = true;
+      evt.preventDefault();
+      deselectActiveDrawing(); // 新しい手書きが始まったので、直前に選択していた線は編集対象から外す
+      activeStrokePoints = [touchStartLatLng];
+      activeStrokeLine = L.polyline(activeStrokePoints, {
+        color: currentDrawColor, weight: currentLineWeight, opacity:0.85, lineCap:'round', lineJoin:'round'
+      }).addTo(map);
+    } else if (dragStarted) {
+      evt.preventDefault();
+      activeStrokePoints.push(eventToLatLng(evt));
+      activeStrokeLine.setLatLngs(activeStrokePoints);
+    }
+  }
+
+  function cancelActiveStroke(){
+    if (activeStrokeLine) map.removeLayer(activeStrokeLine);
+    activeStrokeLine = null;
+    activeStrokePoints = null;
+    dragStarted = false;
+  }
+
+  async function endTouch(evt){
+    // 発火前のタイマーが残っていたら消す（＝長押しになる前にただのタップとして指が離れた）
+    clearLongPressTimer();
+
+    if (currentMode !== 'draw' || !touchStartScreen) return;
+
+    if (drawStyle === 'free') {
+      if (dragStarted && activeStrokeLine) {
+        map.removeLayer(activeStrokeLine); // なぞっている間の一時的な線は消す
+        if (activeStrokePoints.length > 1) {
+          // なぞった形はそのまま保ちつつ、点の数だけ間引いて修整しやすくする
+          const simplified = simplifyPoints(activeStrokePoints, 0.00002);
+          const d = {
+            id: 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+            color: currentDrawColor,
+            weight: currentLineWeight,
+            style: 'free',
+            arrow: arrowEnabled,
+            points: simplified.map(p => [p.lat, p.lng]),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            createdBy: currentUserName
+          };
+          drawings.push(d);
+          actionHistory.push({ type:'drawing', id:d.id });
+          addDrawingToMap(d);
+          await saveDrawings();
+          // モード自体は切り替えず、描いたこの線だけを「アクティブ」にする。
+          // それ以外の場所は引き続き描画操作ができる。
+          await handleNewDrawingCreated(d);
+        }
+      }
+      // ドラッグしなかった（＝タップだけだった）場合は、
+      // 既存の線があればその線自身のクリック処理が反応するので、ここでは何もしない
+    } else if (drawStyle === 'straight') {
+      const p = eventScreenPoint(evt);
+      const dist = Math.hypot(p.x - touchStartScreen.x, p.y - touchStartScreen.y);
+      if (dist < DRAG_THRESHOLD_PX) {
+        addStraightVertex(touchStartLatLng); // 動いていない＝タップなので、頂点を追加する
+      }
+    }
+
+    activeStrokeLine = null;
+    activeStrokePoints = null;
+    touchStartScreen = null;
+    touchStartLatLng = null;
+    dragStarted = false;
+  }
+
+  // スマホ（タッチ操作）
+  mapContainer.addEventListener('touchstart', startTouch, { passive:false });
+  mapContainer.addEventListener('touchmove', moveTouch, { passive:false });
+  mapContainer.addEventListener('touchend', endTouch);
+  mapContainer.addEventListener('touchcancel', endTouch);
+  // PC（マウス操作、動作確認用）
+  mapContainer.addEventListener('mousedown', startTouch);
+  mapContainer.addEventListener('mousemove', moveTouch);
+  mapContainer.addEventListener('mouseup', endTouch);
+
+  // ---------- モード切り替えツールバー ----------
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingParkingLinkTargetId = null; // 手動でモードを切り替えたら、紐づけ待ちは解除する
+      pendingRouteLinkTargetId = null;
+      pendingPointMoveTargetId = null;
+      setMode(btn.dataset.mode);
+    });
+  });
+  document.querySelectorAll('#drawBar .color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentDrawColor = btn.dataset.color;
+      document.querySelectorAll('#drawBar .color-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  document.querySelectorAll('#drawBar .weight-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentLineWeight = Number(btn.dataset.weight);
+      document.querySelectorAll('#drawBar .weight-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  document.getElementById('stylePanBtn').addEventListener('click', () => setDrawStyle('pan'));
+  document.getElementById('styleFreeBtn').addEventListener('click', () => setDrawStyle('free'));
+  document.getElementById('styleStraightBtn').addEventListener('click', () => setDrawStyle('straight'));
+  document.getElementById('arrowToggleBtn').addEventListener('click', () => {
+    arrowEnabled = !arrowEnabled;
+    updateArrowToggleLabel();
+    saveDrawSettings();
+  });
+  document.getElementById('undoVertexBtn').addEventListener('click', () => cancelStraightLine());
+  document.getElementById('finishStraightBtn').addEventListener('click', () => finishStraightLine());
+  document.querySelectorAll('#drawingEditOverlay .weight-swatch').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const d = drawings.find(x => x.id === selectedDrawingId);
+      if (d) {
+        d.weight = Number(btn.dataset.editWeight);
+        d.updatedAt = Date.now();
+        renderAllDrawings();
+        showVertexHandles(selectedDrawingId);
+        await saveDrawings();
+      }
+    });
+  });
+
+  document.getElementById('recenterBtn').addEventListener('click', () => {
+    if (myMarker) {
+      if (followMyLocation) {
+        setFollowMyLocation(false); // 追従中にもう一度押したら解除する
+        return;
+      }
+      map.setView(myMarker.getLatLng(), Math.max(map.getZoom(), 16));
+      setFollowMyLocation(true); // 追従モードを開始する（もう一度押すと解除）
+      return;
+    }
+    // まだ現在地が分かっていない場合は、ここで改めて位置情報の利用を求める
+    if (!navigator.geolocation) {
+      setGpsStatus('この端末では使えません');
+      alert('お使いのブラウザは位置情報に対応していません。');
+      return;
+    }
+    setGpsStatus('取得中…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        placeMyMarker([pos.coords.latitude, pos.coords.longitude]);
+        map.setView(myMarker.getLatLng(), 16);
+        setFollowMyLocation(true);
+      },
+      (err) => {
+        const messages = { 1:'許可されていません', 2:'現在地を特定できません', 3:'取得がタイムアウトしました' };
+        setGpsStatus(messages[err.code] || ('エラー(' + err.code + ')'));
+        alert('現在地を取得できませんでした。スマホの設定で位置情報の利用を許可してください。');
+      },
+      { enableHighAccuracy:true, timeout:10000 }
+    );
+  });
+
+  // 手で地図を動かしたら、勝手に現在地へ戻され続けると邪魔になるので追従を止める
+  map.on('dragstart', () => setFollowMyLocation(false));
+}
+
+// ---------- 現在地の自動追従 ----------
+// 「現在地に戻る」を押すたびに手で押し直さなくていいよう、押した後は
+// 自分の位置が動くのに合わせて地図も追いかけるモードにする。
+// 地図を手で動かしたら自動的に解除する（追従と手動操作がケンカしないように）。
+let followMyLocation = false;
+function setFollowMyLocation(on){
+  followMyLocation = on;
+  const btn = document.getElementById('recenterBtn');
+  if (btn) btn.classList.toggle('following', on);
+}
+
+// ---------- 現在地 ----------
+function setGpsStatus(text){
+  const el = document.getElementById('gpsStatusText');
+  if (el) el.textContent = '現在地：' + text;
+}
+
+function placeMyMarker(latlng){
+  if (!myMarker) {
+    const icon = L.divIcon({
+      className:'',
+      html:'<div style="position:relative;"><div class="me-pulse"></div><div class="me-dot"></div></div>',
+      iconSize:[16,16],
+      iconAnchor:[8,8]
+    });
+    myMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+  } else {
+    myMarker.setLatLng(latlng); // 移動に合わせてマーカーを動かす
+  }
+  setGpsStatus('取得できました');
+}
+
+// ---------- 足跡の記録・時間帯別の「通りにくさ」の蓄積 ----------
+// 目的：ナビや渋滞情報そのものは作れないので、代わりに「自分が実際に走った記録」を
+// 時間帯ごとに集計し、地図に薄く重ねて「この時間帯・このあたりは時間がかかりがち」を
+// 参考情報として見えるようにする。ルートへの自動警告ではなく、あくまで判断材料。
+//
+// 荷卸し中（配達先で停車している時間）を渋滞と誤認しないための対策：
+//  1. 登録済みの地点（配達先・停車位置）から近い場所（約40m以内）の記録は集計しない
+//  2. 90秒以上ほとんど動いていない記録も集計しない（渋滞なら少しずつでも進むはず）
+//  3. 実際に前進している区間の速度だけを蓄積する
+const TRACE_GRID_KEY = 'delivery-trace-grid-v1';
+const TRACE_GRID_SIZE = 0.001; // 緯度経度およそ0.001度＝100m四方のマス目にして集計する
+let traceGrid = {}; // { "gridLat_gridLng_hour": { sum: 速度の合計, count: 件数 } }
+let lastTracePoint = null; // 直前に記録した地点（ここからの移動を見て速度を計算する）
+let lastTraceActivityAt = 0; // 記録中インジケーターの表示に使う
+
+// しばらく更新が無ければ、記録中インジケーターを灰色（休止中）に戻す
+setInterval(() => {
+  const dot = document.getElementById('traceRecDot');
+  if (dot && Date.now() - lastTraceActivityAt > 3 * 60 * 1000) dot.style.background = '#6b7280';
+}, 60 * 1000);
+
+async function loadTraceGrid(){
+  try {
+    const raw = localStorage.getItem(TRACE_GRID_KEY);
+    traceGrid = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    traceGrid = {};
+  }
+}
+async function saveTraceGrid(){
+  try { localStorage.setItem(TRACE_GRID_KEY, JSON.stringify(traceGrid)); }
+  catch (e) { console.error('足跡データの保存に失敗', e); }
+}
+function traceGridKey(lat, lng, hour){
+  const gLat = Math.round(lat / TRACE_GRID_SIZE) * TRACE_GRID_SIZE;
+  const gLng = Math.round(lng / TRACE_GRID_SIZE) * TRACE_GRID_SIZE;
+  return `${gLat.toFixed(3)}_${gLng.toFixed(3)}_${hour}`;
+}
+function recordTraceSpeed(lat, lng, timestampMs, speedKmh){
+  const hour = new Date(timestampMs).getHours();
+  const key = traceGridKey(lat, lng, hour);
+  if (!traceGrid[key]) traceGrid[key] = { sum: 0, count: 0 };
+  traceGrid[key].sum += speedKmh;
+  traceGrid[key].count += 1;
+  // データが増えすぎてストレージを圧迫しないよう、上限を超えたら古そうなものから間引く
+  const keys = Object.keys(traceGrid);
+  if (keys.length > 8000) {
+    keys.sort((a,b) => traceGrid[a].count - traceGrid[b].count); // サンプル数が少ない＝信頼度が低いものから間引く
+    keys.slice(0, 1000).forEach(k => delete traceGrid[k]);
+  }
+  saveTraceGrid();
+}
+function handleTracePoint(lat, lng, timestampMs){
+  // 記録が動いていることが画面で分かるよう、小さな点を緑にする
+  // （しばらく更新が無ければ、別のタイマーで自動的に灰色へ戻す）
+  const dot = document.getElementById('traceRecDot');
+  if (dot) dot.style.background = '#22c55e';
+  lastTraceActivityAt = timestampMs;
+
+  const now = { lat, lng, t: timestampMs };
+  if (!lastTracePoint) { lastTracePoint = now; return; }
+  const dtSec = (now.t - lastTracePoint.t) / 1000;
+  if (dtSec < 15) return; // 短い間隔の記録はノイズになりやすいので、ある程度間隔が空くまで待つ
+  const distM = distanceMeters(lastTracePoint.lat, lastTracePoint.lng, now.lat, now.lng);
+
+  const isStop = (dtSec > 90 && distM < 30); // 長時間ほぼ動いていない＝荷卸し等で停車中とみなす
+  const isNearRegisteredPoint = points.some(p => distanceMeters(p.lat, p.lng, now.lat, now.lng) < 40);
+
+  if (!isStop && !isNearRegisteredPoint && distM >= 15) {
+    const speedKmh = (distM / 1000) / (dtSec / 3600);
+    if (speedKmh > 1 && speedKmh < 120) { // 明らかに異常な値（GPSのブレなど）は除外する
+      recordTraceSpeed(now.lat, now.lng, now.t, speedKmh);
+    }
+  }
+  lastTracePoint = now;
+}
+
+function startWatchingMyLocation(){
+  if (!navigator.geolocation) { setGpsStatus('この端末では使えません'); return; }
+
+  // 権限の状態が分かる場合は、先に画面に表示しておく
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      const labels = { granted:'許可済み（取得中…）', denied:'許可されていません（設定を確認してください）', prompt:'許可を確認中…' };
+      setGpsStatus(labels[status.state] || status.state);
+    }).catch(() => {});
+  }
+
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      const latlng = [pos.coords.latitude, pos.coords.longitude];
+      const firstTime = !myMarker;
+      placeMyMarker(latlng);
+      if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
+      else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
+      handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
+    },
+    (err) => {
+      console.warn('位置情報を取得できません', err);
+      const messages = { 1:'許可されていません', 2:'現在地を特定できません', 3:'取得がタイムアウトしました' };
+      setGpsStatus(messages[err.code] || ('エラー(' + err.code + ')'));
+    },
+    { enableHighAccuracy:true, maximumAge:2000, timeout:10000 }
+  );
+}
+
+// ---------- 保存データの読み書き ----------
+// スマホの普通のブラウザ（Chromeなど）でそのまま使える、標準の保存機能(localStorage)を使う
+async function loadPoints(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    points = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    points = []; // 保存データがまだ無い場合や壊れている場合は空にする
+  }
+  // 以前のバージョン（写真を1枚だけ持つ形式）のデータを、複数枚対応の形式に変換する
+  points.forEach(p => {
+    if (!p.photos) {
+      p.photos = p.photo ? [p.photo] : [];
+    }
+  });
+}
+
+async function savePoints(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+  } catch (e) {
+    console.error('保存に失敗しました', e);
+    alert('地点の保存に失敗しました。写真が大きすぎる可能性があります。');
+  }
+  updateCount();
+}
+
+function updateCount(){
+  // 「完了」件数は今は使わない方針のため、単純な件数表示に戻す
+  document.getElementById('pointCount').textContent = `地点：${points.length}件`;
+}
+
+// ---------- マーカー描画 ----------
+let hideDoneEnabled = false;
+// 「今回の便」機能：検索で選んだ地点や、まだ登録していない検索結果の場所をまとめて、
+// 地図に表示したりGoogle Mapsのルートに渡したりする。
+// pointId: 登録済みの地点ならそのid、まだ登録していない場所（住所検索の結果）ならnull。
+let currentBatchItems = []; // { key, pointId, lat, lng, label }
+let batchOriginKey = 'current'; // 'current'＝現在地、それ以外はcurrentBatchItemsのkey
+let batchModeActive = false;
+function isPointInBatch(id){
+  return currentBatchItems.some(item => item.pointId === id);
+}
+function renderAllMarkers(){
+  markersLayer.clearLayers();
+  buildingOutlineLayer.clearLayers();
+  pointMarkerById = {};
+  points
+    .filter(p => !(hideDoneEnabled && p.status === 'done'))
+    .filter(p => !batchModeActive || isPointInBatch(p.
