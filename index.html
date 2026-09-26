@@ -4450,6 +4450,34 @@ document.getElementById('searchBtn').addEventListener('click', () => {
 });
 
 let lastGeocodeResult = null; // { lat, lng, label }
+// 現在地（無ければ、すでに登録している地点の1つ目）の座標から、
+// 「〇〇市」「〇〇区」のような市区町村名を逆算して求める。
+// 特定の都市に決め打ちせず、実際にいる場所・使っている場所に自動で合わせるための仕組み。
+async function guessNearbyCityName(){
+  let lat, lng;
+  if (myMarker) {
+    const ll = myMarker.getLatLng();
+    lat = ll.lat; lng = ll.lng;
+  } else if (points.length > 0) {
+    lat = points[0].lat; lng = points[0].lng;
+  } else {
+    return null; // 手がかりが何も無ければ諦める
+  }
+  try {
+    const res = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`,
+      { headers: { 'Accept-Language': 'ja' } }, 6000
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const addr = data.address || {};
+    // 「〇〇市」「〇〇区」に当たる項目を優先順に探す（自治体によって入り方が違うため）
+    return addr.city || addr.city_district || addr.town || addr.county || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // タイムアウト付きでfetchする（通信が遅い時に無反応のまま待たされ続けないようにする）
 function fetchWithTimeout(url, options, timeoutMs){
   const controller = new AbortController();
@@ -4496,20 +4524,23 @@ document.getElementById('geocodeSearchBtn').addEventListener('click', async () =
   lastGeocodeResult = gsiResult || osmResult;
 
   // 「北区田町1-2-3」のように市区町村名が省略されていて見つからない場合、
-  // このアプリが主に使われている岡山市を補って、自動でもう一度だけ試す
+  // 現在地（無ければ、すでに登録している地点）から市区町村名を逆算して補い、もう一度だけ試す
   if (!lastGeocodeResult && !/[都道府県市]/.test(query)) {
-    statusEl.textContent = '見つからないため「岡山市」を補って探しています…';
-    const retryQuery = '岡山市' + query;
-    const retryResult = await fetchWithTimeout(
-      'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(retryQuery), {}, 8000
-    ).then(res => res.ok ? res.json() : null).then(results => {
-      if (Array.isArray(results) && results.length > 0) {
-        const [lon, lat] = results[0].geometry.coordinates;
-        return { lat, lng: lon, label: results[0].properties.title || retryQuery };
-      }
-      return null;
-    }).catch(() => null);
-    lastGeocodeResult = retryResult;
+    const cityName = await guessNearbyCityName();
+    if (cityName) {
+      statusEl.textContent = `見つからないため「${cityName}」を補って探しています…`;
+      const retryQuery = cityName + query;
+      const retryResult = await fetchWithTimeout(
+        'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(retryQuery), {}, 8000
+      ).then(res => res.ok ? res.json() : null).then(results => {
+        if (Array.isArray(results) && results.length > 0) {
+          const [lon, lat] = results[0].geometry.coordinates;
+          return { lat, lng: lon, label: results[0].properties.title || retryQuery };
+        }
+        return null;
+      }).catch(() => null);
+      lastGeocodeResult = retryResult;
+    }
   }
 
   if (lastGeocodeResult) {
