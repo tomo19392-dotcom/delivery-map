@@ -487,8 +487,9 @@
   </div>
 </div>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
-<div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px;">
-  現在地：確認中…
+<div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
+  <span id="traceRecDot" title="足跡の記録状況" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6b7280; flex-shrink:0; transition:background .3s;"></span>
+  <span id="gpsStatusText">現在地：確認中…</span>
 </div>
 <div id="offlineStatus" style="display:none; background:rgba(180,83,9,.9); color:#fff; font-size:11px; padding:4px 8px; border-radius:8px;">
   📴 オフライン中（保存済みの地図のみ表示）
@@ -1204,7 +1205,7 @@ let arrowEnabled = false; // フリーハンド／直線のどちらにも付け
 let darkModeEnabled = false;
 let largeTextEnabled = false;
 let traceHeatmapEnabled = false;
-let traceHeatmapHour = new Date().getHours(); // 初期値は今の時間帯
+let traceHeatmapHour = 'auto'; // 'auto'なら常に今の時間帯を使う。数値を選べば固定できる
 let showNameLabelsEnabled = true; // デフォルトはON（誰の場所か分かることを重視する方針のため）
 let currentStampType = 'no_entry';
 let selectedDrawingId = null;
@@ -1974,7 +1975,7 @@ function setFollowMyLocation(on){
 
 // ---------- 現在地 ----------
 function setGpsStatus(text){
-  const el = document.getElementById('gpsStatus');
+  const el = document.getElementById('gpsStatusText');
   if (el) el.textContent = '現在地：' + text;
 }
 
@@ -2006,6 +2007,13 @@ const TRACE_GRID_KEY = 'delivery-trace-grid-v1';
 const TRACE_GRID_SIZE = 0.001; // 緯度経度およそ0.001度＝100m四方のマス目にして集計する
 let traceGrid = {}; // { "gridLat_gridLng_hour": { sum: 速度の合計, count: 件数 } }
 let lastTracePoint = null; // 直前に記録した地点（ここからの移動を見て速度を計算する）
+let lastTraceActivityAt = 0; // 記録中インジケーターの表示に使う
+
+// しばらく更新が無ければ、記録中インジケーターを灰色（休止中）に戻す
+setInterval(() => {
+  const dot = document.getElementById('traceRecDot');
+  if (dot && Date.now() - lastTraceActivityAt > 3 * 60 * 1000) dot.style.background = '#6b7280';
+}, 60 * 1000);
 
 async function loadTraceGrid(){
   try {
@@ -2039,6 +2047,12 @@ function recordTraceSpeed(lat, lng, timestampMs, speedKmh){
   saveTraceGrid();
 }
 function handleTracePoint(lat, lng, timestampMs){
+  // 記録が動いていることが画面で分かるよう、小さな点を緑にする
+  // （しばらく更新が無ければ、別のタイマーで自動的に灰色へ戻す）
+  const dot = document.getElementById('traceRecDot');
+  if (dot) dot.style.background = '#22c55e';
+  lastTraceActivityAt = timestampMs;
+
   const now = { lat, lng, t: timestampMs };
   if (!lastTracePoint) { lastTracePoint = now; return; }
   const dtSec = (now.t - lastTracePoint.t) / 1000;
@@ -4575,7 +4589,7 @@ function loadDrawSettings(){
       if (typeof s.largeText === 'boolean') largeTextEnabled = s.largeText;
       if (typeof s.showNameLabels === 'boolean') showNameLabelsEnabled = s.showNameLabels;
       if (typeof s.traceHeatmap === 'boolean') traceHeatmapEnabled = s.traceHeatmap;
-      if (typeof s.traceHeatmapHour === 'number') traceHeatmapHour = s.traceHeatmapHour;
+      if (typeof s.traceHeatmapHour === 'number' || s.traceHeatmapHour === 'auto') traceHeatmapHour = s.traceHeatmapHour;
     }
   } catch (e) { /* 保存済み設定が無い場合は初期値のまま */ }
 
@@ -4643,7 +4657,7 @@ document.getElementById('largeTextToggleBtn').addEventListener('click', () => {
 // ---------- 時間帯別の通りにくさの表示 ----------
 function buildTraceHeatmapHourOptions(){
   const select = document.getElementById('traceHeatmapHourSelect');
-  select.innerHTML = '';
+  select.innerHTML = '<option value="auto">🕒 自動（今の時間帯）</option>';
   for (let h = 0; h < 24; h++) {
     const opt = document.createElement('option');
     opt.value = h;
@@ -4661,7 +4675,8 @@ function speedToColor(avgSpeedKmh){
 function renderTraceHeatmap(){
   traceHeatmapLayer.clearLayers();
   if (!traceHeatmapEnabled) return;
-  const suffix = '_' + traceHeatmapHour;
+  const hourToShow = (traceHeatmapHour === 'auto') ? new Date().getHours() : traceHeatmapHour;
+  const suffix = '_' + hourToShow;
   Object.keys(traceGrid).forEach(key => {
     if (!key.endsWith(suffix)) return;
     const cell = traceGrid[key];
@@ -4681,13 +4696,17 @@ function applyTraceHeatmapToggle(){
   document.getElementById('traceHeatmapHourWrap').style.display = traceHeatmapEnabled ? 'block' : 'none';
   renderTraceHeatmap();
 }
+// 「自動」を選んでいる間、時刻が進んで時間帯が変わったら自動で表示を更新する
+setInterval(() => {
+  if (traceHeatmapEnabled && traceHeatmapHour === 'auto') renderTraceHeatmap();
+}, 5 * 60 * 1000);
 document.getElementById('traceHeatmapToggleBtn').addEventListener('click', () => {
   traceHeatmapEnabled = !traceHeatmapEnabled;
   applyTraceHeatmapToggle();
   saveDrawSettings();
 });
 document.getElementById('traceHeatmapHourSelect').addEventListener('change', (e) => {
-  traceHeatmapHour = parseInt(e.target.value, 10);
+  traceHeatmapHour = (e.target.value === 'auto') ? 'auto' : parseInt(e.target.value, 10);
   renderTraceHeatmap();
   saveDrawSettings();
 });
