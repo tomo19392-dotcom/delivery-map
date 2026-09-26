@@ -863,7 +863,10 @@
         <button type="button" class="btn btn-secondary" id="geocodeViewBtn" style="padding:7px; font-size:12px;">🗺️ 地図で見る</button>
         <button type="button" class="btn btn-primary" id="geocodeAddBatchBtn" style="padding:7px; font-size:12px;">➕ 便に追加</button>
       </div>
-      <button type="button" class="btn btn-secondary" id="geocodeProvisionalBtn" style="width:100%; margin-top:6px; padding:7px; font-size:12px;">📌 仮登録する（到着後に詳細を入力）</button>
+      <div style="border-top:1px solid var(--line); margin:8px 0 6px;"></div>
+      <button type="button" id="geocodeProvisionalBtn" style="width:100%; padding:9px; font-size:13px; font-weight:700;
+        background:#8B5CF6; color:#fff; border:none; border-radius:10px;">📌 まだ登録していない場所として仮登録する</button>
+      <p style="font-size:11px; color:var(--sub); margin:4px 0 0;">現地に着いたら、詳細画面から内容を入力・保存すれば本登録になります</p>
     </div>
     <div class="btn-row">
       <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
@@ -1521,6 +1524,26 @@ function updateOfflineStatus(){
 window.addEventListener('online', updateOfflineStatus);
 window.addEventListener('offline', updateOfflineStatus);
 
+// ---------- 地図の表示位置を覚えておく ----------
+// 何らかの理由で画面が再読み込みされた時に、毎回東京駅からやり直しにならないようにする。
+const MAP_VIEW_KEY = 'delivery-map-view-v1';
+function getLastMapView(){
+  try {
+    const raw = localStorage.getItem(MAP_VIEW_KEY);
+    if (raw) {
+      const v = JSON.parse(raw);
+      if (v && v.center && typeof v.zoom === 'number') return v;
+    }
+  } catch (e) { /* 保存データが無い・壊れている場合は初期値を使う */ }
+  return { center: [35.681236, 139.767125], zoom: 16 }; // 東京駅を仮の初期位置に
+}
+function saveCurrentMapView(){
+  try {
+    const c = map.getCenter();
+    localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ center: [c.lat, c.lng], zoom: map.getZoom() }));
+  } catch (e) { /* 保存に失敗しても致命的ではないので無視する */ }
+}
+
 function initMap(){
   // ・zoomSnap:0 → 指を離したときに「区切りの良い拡大率」へ自動で吸着させない
   // ・bounceAtZoomLimits:false → 拡大の上限(maxZoom)に達したとき、指を離すと
@@ -1530,8 +1553,16 @@ function initMap(){
     zoomSnap:0,
     zoomDelta:1,
     bounceAtZoomLimits:false
-  }).setView([35.681236, 139.767125], 16); // 東京駅を仮の初期位置に
+  }).setView(getLastMapView().center, getLastMapView().zoom); // 前回見ていた場所（無ければ東京駅）を初期位置にする
   new OfflineTileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+
+  // 何らかの理由で画面が再読み込みされても、直前に見ていた場所に戻れるよう、
+  // 地図を動かすたびに表示位置を保存しておく（頻繁に書き込みすぎないよう間引く）
+  let saveMapViewTimer = null;
+  map.on('moveend zoomend', () => {
+    clearTimeout(saveMapViewTimer);
+    saveMapViewTimer = setTimeout(saveCurrentMapView, 500);
+  });
 
   markersLayer = L.layerGroup().addTo(map);
   buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
@@ -4379,11 +4410,14 @@ function runSearch(query){
   const resultsEl = document.getElementById('searchResults');
   const emptyEl = document.getElementById('searchEmpty');
   resultsEl.innerHTML = '';
-  const q = query.trim().toLowerCase();
+  // 全角/半角の数字・記号の表記ゆれ（例：１−２−３ と 1-2-3）を吸収するため、
+  // 検索文字列・地点データの両方をNFKC正規化してから比較する
+  const q = query.trim().normalize('NFKC').toLowerCase();
 
   const matched = q === '' ? [] : points.filter(p => {
     const tagText = (p.tags || []).map(noteTagLabel).join(' ');
-    const haystack = [p.name, p.nameKana, p.address, p.addressKana, p.memo, p.boxPassword, tagText, typeLabelOf(p)].filter(Boolean).join(' ').toLowerCase();
+    const haystack = [p.name, p.nameKana, p.address, p.addressKana, p.memo, p.boxPassword, tagText, typeLabelOf(p)]
+      .filter(Boolean).join(' ').normalize('NFKC').toLowerCase();
     return haystack.includes(q);
   });
 
