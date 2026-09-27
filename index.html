@@ -1484,6 +1484,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadTrail(); // 同様に、軌跡もトグルの反映前に読み込んでおく
   loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
   await loadPoints();
+  await resetDailyStatusIfNeeded(); // 日付が変わっていたら「完了」を「未対応」に戻す
   await loadDrawings();
   await loadStamps();
   await loadTrash();
@@ -2401,6 +2402,41 @@ async function loadPoints(){
     }
   });
 }
+
+// ---------- 「完了」ステータスの日付リセット ----------
+// 「完了」のままだと翌日以降その地点が「次の配達」から永久に外れ続けて困るため、
+// 日付が変わったタイミングで自動的に「未対応」へ戻す。
+// （便の組み直しをトリガーにすると、配達中にブラウザが再読み込みされて
+//   組み直した場合に完了記録が消えてしまうため、日付だけを基準にしている）
+const STATUS_RESET_KEY = 'delivery-status-reset-date-v1';
+async function resetDailyStatusIfNeeded(){
+  const todayStr = new Date().toDateString();
+  let lastReset = null;
+  try { lastReset = localStorage.getItem(STATUS_RESET_KEY); } catch (e) {}
+  if (lastReset === todayStr) return; // 今日すでにリセット済み
+  try { localStorage.setItem(STATUS_RESET_KEY, todayStr); } catch (e) {}
+  if (lastReset === null) return; // 初回起動時（まだ一度もリセットしたことが無い）は何もせず、基準日だけ記録する
+  let changed = false;
+  points.forEach(p => {
+    if (p.status === 'done') {
+      p.status = 'pending';
+      p.updatedAt = Date.now();
+      changed = true;
+    }
+  });
+  if (changed) {
+    await savePoints();
+    renderAllMarkers();
+    renderNavWidget();
+    renderNextStopBar();
+    if (selectedPointId) {
+      const p = points.find(pt => pt.id === selectedPointId);
+      if (p) updateStatusButtonsUI(p.status || 'pending');
+    }
+  }
+}
+// アプリを開きっぱなしのまま日付をまたいだ場合にも対応できるよう、定期的にも確認する
+setInterval(() => { resetDailyStatusIfNeeded(); }, 5 * 60 * 1000);
 
 async function savePoints(){
   try {
