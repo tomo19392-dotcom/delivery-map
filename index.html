@@ -454,6 +454,17 @@
       <button type="button" id="batchModeOffBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:600;">解除</button>
     </div>
   </div>
+  <!-- 拠点付近に長時間停車→動き出した時だけ出る、便の区切り確認 -->
+  <div id="batchSplitPrompt" style="display:none; align-items:center; gap:10px; flex-wrap:wrap;
+    background:rgba(5,150,105,.97); color:#fff; font-size:13px; font-weight:600; padding:10px 14px;
+    border-bottom:1px solid rgba(255,255,255,.2); flex-shrink:0;">
+    <span style="font-size:18px; flex-shrink:0;">🅿️</span>
+    <div id="batchSplitPromptText" style="flex:1; min-width:160px; line-height:1.4;"></div>
+    <div style="display:flex; gap:8px; flex-shrink:0;">
+      <button type="button" id="batchSplitYesBtn" style="background:#fff; color:#059669; border:none; border-radius:10px; padding:8px 14px; font-size:13px; font-weight:700;">はい、区切る</button>
+      <button type="button" id="batchSplitNoBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 14px; font-size:13px; font-weight:600;">いいえ</button>
+    </div>
+  </div>
   <div id="map"></div>
 
   <!-- お名前入力（初回は必須。閉じるボタンなし＝入力するまで先に進めない） -->
@@ -495,6 +506,11 @@
     <label style="display:flex; align-items:center; gap:5px; cursor:pointer;">
       <input type="checkbox" id="hideDoneToggle" /> 未完了のみ表示
     </label>
+  </div>
+  <div id="trailBatchLegendRow" style="display:none; flex-direction:column; align-items:flex-start; gap:3px;
+    margin-top:4px; padding-top:4px; border-top:1px solid var(--line);">
+    <div style="font-size:10px; color:var(--sub);">本日の軌跡（便ごと）</div>
+    <div id="trailBatchLegendList" style="display:flex; flex-direction:column; gap:2px;"></div>
   </div>
 </div>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
@@ -1509,6 +1525,9 @@ function updateHeaderHeightVar(){
   // （そうしないと、バナーの上に四隅のボタンが重なって出てしまう）
   const banner = document.getElementById('batchModeBanner');
   if (banner && banner.style.display !== 'none') height += banner.offsetHeight;
+  // 便の区切り確認バーが出ている間も、その分を含める
+  const splitPrompt = document.getElementById('batchSplitPrompt');
+  if (splitPrompt && splitPrompt.style.display !== 'none') height += splitPrompt.offsetHeight;
   document.documentElement.style.setProperty('--header-h', height + 'px');
 }
 
@@ -2293,6 +2312,81 @@ function handleTrailPoint(lat, lng, timestampMs){
   saveTrail();
   if (trailDayEnabled || trailKmEnabled) renderTrail();
 }
+
+// ---------- 便（1回の配達ルート）の自動区切り検出 ----------
+// 拠点（🚩）付近に長時間停車していた＝おそらく帰社して積み下ろし・積み込みをしている、
+// とみなし、そこから動き出したタイミングで「新しい便として区切りますか？」と一度だけ確認する。
+// 誤検知（長い休憩など）を確認なしで反映してしまわないよう、実際に反映するのは
+// 「はい」が押された時だけにする。
+const BATCH_SPLIT_STOP_MS = 20 * 60 * 1000; // これ以上停車していたら候補にする（目安：20分）
+const BATCH_SPLIT_BASE_RADIUS_M = 100; // 拠点からこの距離以内なら停車の検出を開始する
+const BATCH_SPLIT_MOVE_RADIUS_M = 60; // 停車地点からこの距離を超えて離れたら「動き出した」とみなす
+const BATCH_SPLIT_PROMPT_TIMEOUT_MS = 90 * 1000; // 確認が90秒操作されなければ、区切らずに自動で閉じる
+let batchSplitStopCandidate = null; // { lat, lng, startT, lastT }
+let batchSplitPendingPointRef = null; // 確認中に「はい」が押されたら実際に印を付ける対象
+let batchSplitPromptTimeoutId = null;
+
+function nearestBaseDistanceM(lat, lng){
+  const basePoints = points.filter(p => p.type === 'parking' && p.isBase);
+  if (basePoints.length === 0) return Infinity;
+  return Math.min(...basePoints.map(p => distanceMeters(p.lat, p.lng, lat, lng)));
+}
+
+function trackBatchSplitCandidate(lat, lng, timestampMs){
+  if (!batchSplitStopCandidate) {
+    if (nearestBaseDistanceM(lat, lng) <= BATCH_SPLIT_BASE_RADIUS_M) {
+      batchSplitStopCandidate = { lat, lng, startT: timestampMs, lastT: timestampMs };
+    }
+    return;
+  }
+  const d = distanceMeters(batchSplitStopCandidate.lat, batchSplitStopCandidate.lng, lat, lng);
+  if (d <= BATCH_SPLIT_MOVE_RADIUS_M) {
+    batchSplitStopCandidate.lastT = timestampMs; // まだ同じ場所にいる＝停車継続中
+    return;
+  }
+  // ここで停車地点から離れた＝動き出した
+  const stopInfo = batchSplitStopCandidate;
+  batchSplitStopCandidate = null;
+  const stoppedMs = stopInfo.lastT - stopInfo.startT;
+  if (stoppedMs >= BATCH_SPLIT_STOP_MS) {
+    showBatchSplitPrompt(stopInfo);
+  }
+}
+
+function showBatchSplitPrompt(stopInfo){
+  if (batchSplitPendingPointRef) return; // 既に確認を出している最中は重ねて出さない
+  // 今まさに動き出した後にhandleTrailPointで追加された最新の1点を、区切りの目印候補として控えておく
+  const latestPoint = trailPoints[trailPoints.length - 1];
+  if (!latestPoint) return;
+  batchSplitPendingPointRef = latestPoint;
+  const fmt = (t) => new Date(t).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+  const textEl = document.getElementById('batchSplitPromptText');
+  if (textEl) textEl.textContent = `拠点付近に ${fmt(stopInfo.startT)}〜${fmt(stopInfo.lastT)} 停車していました。新しい便として区切りますか？`;
+  const promptEl = document.getElementById('batchSplitPrompt');
+  if (promptEl) promptEl.style.display = 'flex';
+  updateHeaderHeightVar();
+  if (batchSplitPromptTimeoutId) clearTimeout(batchSplitPromptTimeoutId);
+  batchSplitPromptTimeoutId = setTimeout(hideBatchSplitPrompt, BATCH_SPLIT_PROMPT_TIMEOUT_MS);
+}
+function hideBatchSplitPrompt(){
+  batchSplitPendingPointRef = null;
+  if (batchSplitPromptTimeoutId) { clearTimeout(batchSplitPromptTimeoutId); batchSplitPromptTimeoutId = null; }
+  const promptEl = document.getElementById('batchSplitPrompt');
+  if (promptEl) promptEl.style.display = 'none';
+  updateHeaderHeightVar();
+}
+document.getElementById('batchSplitYesBtn').addEventListener('click', () => {
+  if (batchSplitPendingPointRef) {
+    batchSplitPendingPointRef.newBatch = true;
+    saveTrail();
+    renderTrail();
+  }
+  hideBatchSplitPrompt();
+});
+document.getElementById('batchSplitNoBtn').addEventListener('click', () => {
+  hideBatchSplitPrompt();
+});
+
 // 最新の地点から遡って、合計距離がTRAIL_KM_DISTANCEに達するところまでの区間を取り出す
 // （画面を閉じていた間の記録の空白をまたいでしまうと直線で飛んで見えるため、
 //   大きな時間の空きがあったらそこで区切って、それより前は含めない）
@@ -2324,15 +2418,59 @@ function splitTrailSegments(pts){
   if (current.length >= 2) segments.push(current);
   return segments;
 }
+// 1日に何便も走る場合、本日の軌跡が全部同じ色だと便の切れ目が分からない。
+// 「便の区切り」の印（newBatch）がついた点の直前で分割し、便ごとに別の色で描く。
+const BATCH_TRAIL_COLOR_PALETTE = ['#2563EB', '#DC2626', '#059669', '#D97706', '#7C3AED', '#DB2777', '#0891B2', '#65A30D'];
+function splitTrailByBatch(pts){
+  const batches = [];
+  let current = [];
+  pts.forEach(p => {
+    if (current.length > 0 && p.newBatch) {
+      batches.push(current);
+      current = [];
+    }
+    current.push(p);
+  });
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+function renderTrailBatchLegend(batches){
+  const row = document.getElementById('trailBatchLegendRow');
+  const list = document.getElementById('trailBatchLegendList');
+  if (!row || !list) return;
+  if (!trailDayEnabled || batches.length <= 1) {
+    row.style.display = 'none';
+    return;
+  }
+  const fmt = (t) => new Date(t).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+  list.innerHTML = batches.map((b, i) => {
+    const color = BATCH_TRAIL_COLOR_PALETTE[i % BATCH_TRAIL_COLOR_PALETTE.length];
+    const start = fmt(b[0].t);
+    const end = (i === batches.length - 1) ? '現在' : fmt(b[b.length - 1].t);
+    return `<div style="display:flex; align-items:center; gap:6px; font-size:11px;">
+      <span style="width:14px; height:4px; border-radius:2px; background:${color}; flex-shrink:0;"></span>
+      <span>便${i + 1}　${start}〜${end}</span>
+    </div>`;
+  }).join('');
+  row.style.display = 'flex';
+  if (typeof adjustCornerHeights === 'function') adjustCornerHeights();
+}
 function renderTrail(){
   myTrailLayer.clearLayers();
   if (trailDayEnabled) {
     const todayStr = new Date().toDateString();
     const dayPts = trailPoints.filter(p => new Date(p.t).toDateString() === todayStr);
-    splitTrailSegments(dayPts).forEach(seg => {
-      L.polyline(seg.map(p => [p.lat, p.lng]),
-        { color:'#2563EB', weight:3, opacity:0.55, interactive:false }).addTo(myTrailLayer);
+    const batches = splitTrailByBatch(dayPts);
+    batches.forEach((batchPts, batchIdx) => {
+      const color = BATCH_TRAIL_COLOR_PALETTE[batchIdx % BATCH_TRAIL_COLOR_PALETTE.length];
+      splitTrailSegments(batchPts).forEach(seg => {
+        L.polyline(seg.map(p => [p.lat, p.lng]),
+          { color, weight:3, opacity:0.6, interactive:false }).addTo(myTrailLayer);
+      });
     });
+    renderTrailBatchLegend(batches);
+  } else {
+    renderTrailBatchLegend([]);
   }
   if (trailKmEnabled) {
     const kmPts = lastKmTrailPoints();
@@ -2503,6 +2641,7 @@ function startWatchingMyLocation(){
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
       handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now());
+      trackBatchSplitCandidate(pos.coords.latitude, pos.coords.longitude, Date.now());
     },
     (err) => {
       console.warn('位置情報を取得できません', err);
