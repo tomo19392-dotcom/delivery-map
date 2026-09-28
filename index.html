@@ -195,6 +195,10 @@
     box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
   }
   #map.zoom-close:not(.hide-name-labels) .pin-name-label{ display:block; }
+  /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。ピン本体の色付き枠（リング）は
+     常時見えるが、この文字は名前ラベルと同じく拡大時のみ出す。 */
+  .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
+    font-size:9px; font-weight:700; color:#fff; vertical-align:middle; }
 
   /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
   .building-name-label{
@@ -842,6 +846,11 @@
           <div class="info-row-label">⚠️ 注意点</div>
           <div id="detailTags" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:3px;"></div>
         </div>
+      </div>
+
+      <div class="info-row" id="detailRatingRow" style="display:none; flex-direction:column; align-items:flex-start;">
+        <div class="info-row-label">🏅 お客様評価（ワンタッチ登録）</div>
+        <div class="btn-row" id="ratingButtonRow" style="margin-top:6px; flex-wrap:wrap;"></div>
       </div>
 
       <div class="info-row" id="detailMemoRow">
@@ -2835,6 +2844,23 @@ function renderAllMarkers(){
   updateCount();
 }
 
+// ---------- お客様評価（SSR/SR/R/A/B/C）のワンタッチ登録 ----------
+// これまで備考欄に手入力していたお客様情報を、選ぶだけで済むようにする。
+// 色はガチャ・カードゲームなどでよく使われる「レア度」の配色に合わせている
+// （SSR＝金、SR＝紫、R＝青…）ので、初見でも大まかな上下が伝わりやすいはず。
+const RATING_TIERS = [
+  { key: 'SSR', color: '#F59E0B' },
+  { key: 'SR',  color: '#A855F7' },
+  { key: 'R',   color: '#3B82F6' },
+  { key: 'A',   color: '#22C55E' },
+  { key: 'B',   color: '#0891B2' },
+  { key: 'C',   color: '#9CA3AF' },
+];
+function ratingColor(key){
+  const tier = RATING_TIERS.find(t => t.key === key);
+  return tier ? tier.color : null;
+}
+
 function addMarkerToMap(p){
   // 配達完了・不在などのステータスは今は表示に使わない方針のため、
   // ピンの色・バッジ・再配達日表示はステータスに関わらず常に通常表示にする。
@@ -2846,11 +2872,22 @@ function addMarkerToMap(p){
   const pinInner = (parkingCat && parkingCat.emoji)
     ? `<div class="pin-inner" style="display:flex; align-items:center; justify-content:center; font-size:9px; line-height:1; transform:rotate(45deg);">${parkingCat.emoji}</div>`
     : `<div class="pin-inner"></div>`;
+  // お客様評価が付いている配達先は、ピンの枠を評価の色で囲む（どのズームでも見える）。
+  // 既存の落ち影と両立させるため、box-shadowは上書きせず2つ重ねる。
+  const ratingRingStyle = (p.type === 'delivery' && p.rating)
+    ? ` box-shadow:0 2px 5px rgba(0,0,0,.35), 0 0 0 3px ${ratingColor(p.rating)};` : '';
+  const ratingChip = (p.type === 'delivery' && p.rating)
+    ? `<span class="rating-chip" style="background:${ratingColor(p.rating)};">${p.rating}</span>` : '';
   // ゼンリンの住宅地図のように「その場所に誰がいるか」が一目で分かることを重視し、
   // ある程度拡大したらピンの横に名前を出す（詳細を開かなくても分かるようにする）。
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
   const displayName = p.name || p.nameKana || '';
-  const nameLabel = (displayName && !p.buildingOutline) ? `<div class="pin-name-label">${escapeHtml(displayName)}</div>` : '';
+  let nameLabel = '';
+  if (displayName && !p.buildingOutline) {
+    nameLabel = `<div class="pin-name-label">${escapeHtml(displayName)}${ratingChip}</div>`;
+  } else if (ratingChip) {
+    nameLabel = `<div class="pin-name-label">${ratingChip}</div>`;
+  }
   // 「配達先を組む」で出発地点に選ばれている間は、遠目にも分かるよう常にラベルを出す
   // （拠点でも、便のただの1件でも、出発地点として選ばれていればこれが優先される）
   const isRouteOrigin = batchModeActive && p.id === batchOriginKey;
@@ -2872,7 +2909,7 @@ function addMarkerToMap(p){
   } else {
     const html = `
       <div class="pin-wrap" style="position:relative; width:30px; height:30px;">
-        <div class="pin${p.provisional ? ' provisional' : ''}" style="background:${color};">
+        <div class="pin${p.provisional ? ' provisional' : ''}" style="background:${color};${ratingRingStyle}">
           ${pinInner}
           ${p.attention ? '<div class="badge badge-warn">⚠️</div>' : ''}
           ${(p.photos && p.photos.length > 0) ? '<div class="badge badge-photo">📷</div>' : ''}
@@ -3805,6 +3842,43 @@ function setPointStatus(status){
 document.querySelectorAll('.status-btn').forEach(btn => {
   btn.addEventListener('click', () => setPointStatus(btn.dataset.status));
 });
+
+// ---------- お客様評価（SSR/SR/R/A/B/C）ボタン ----------
+// 6段階分をHTMLに書き並べるより、色の定義（RATING_TIERS）から作った方が
+// 色を後で調整したくなった時に1箇所直すだけで済む。
+function renderRatingButtons(){
+  const row = document.getElementById('ratingButtonRow');
+  if (!row) return;
+  row.innerHTML = RATING_TIERS.map(t => `
+    <button type="button" class="btn rating-btn" data-rating="${t.key}"
+      style="flex:0 0 30%; padding:9px 4px; font-size:13px; font-weight:700;">${t.key}</button>
+  `).join('');
+  row.querySelectorAll('.rating-btn').forEach(btn => {
+    btn.addEventListener('click', () => setPointRating(btn.dataset.rating));
+  });
+}
+function updateRatingButtonsUI(rating){
+  document.querySelectorAll('.rating-btn').forEach(btn => {
+    const active = btn.dataset.rating === rating;
+    btn.style.background = active ? ratingColor(btn.dataset.rating) : '';
+    btn.style.color = active ? '#fff' : '';
+    btn.classList.toggle('btn-primary', active);
+    btn.classList.toggle('btn-secondary', !active);
+  });
+}
+function setPointRating(rating){
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (!p) return;
+  // 同じ評価をもう一度タップしたら解除する（誤タップをすぐ取り消せるように）
+  const next = (p.rating === rating) ? null : rating;
+  p.rating = next;
+  p.updatedAt = Date.now();
+  updateRatingButtonsUI(next);
+  savePoints();
+  renderAllMarkers();
+}
+renderRatingButtons();
+
 document.getElementById('redeliveryDateInput').addEventListener('change', (e) => {
   const p = points.find(pt => pt.id === selectedPointId);
   if (!p) return;
@@ -4035,6 +4109,15 @@ function openDetailSheet(id){
     boxRow.style.display = 'flex';
   } else {
     boxRow.style.display = 'none';
+  }
+
+  // お客様評価は配達先のみ（停車位置には意味がないため出さない）
+  const ratingRow = document.getElementById('detailRatingRow');
+  if (p.type === 'delivery') {
+    ratingRow.style.display = 'flex';
+    updateRatingButtonsUI(p.rating || null);
+  } else {
+    ratingRow.style.display = 'none';
   }
 
   const tagsRow = document.getElementById('detailTagsRow');
@@ -5204,6 +5287,7 @@ function runSearch(query){
           background:${inBatch ? 'var(--blue)' : '#f3f4f6'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? (batchOrder + 1) : '＋'}</button>
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'}; padding-right:30px;">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
+          ${(p.type === 'delivery' && p.rating) ? `<span class="rating-chip" style="background:${ratingColor(p.rating)};">${p.rating}</span>` : ''}
         </div>
         ${(p.name || p.nameKana) ? `<div style="font-size:15px; font-weight:700; color:var(--ink); margin-top:2px; padding-right:30px;">${escapeHtml(p.name || p.nameKana)}</div>` : ''}
         ${p.address ? `<div style="font-size:12px; color:var(--sub); margin-top:1px;">📍 ${escapeHtml(p.address)}</div>` : ''}
