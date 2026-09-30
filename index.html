@@ -193,12 +193,16 @@
      多いため、拡大率に関わらず常に出す（設定の「名前ラベルを表示」トグルでは今まで通り
      オフにできる）。 */
   .pin-name-label{
-    display:block;
+    display:none;
     position:absolute; top:2px; left:32px; white-space:nowrap;
     background:rgba(255,255,255,.92); color:#1f2937;
     font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
     box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
   }
+  /* 「配達先を組む」で地図に表示している間だけ、地点数が絞られているので名前を常に出す。
+     それ以外の通常表示では地点数が多いため、今まで通りズームインした時だけ出す。 */
+  #map.zoom-close .pin-name-label{ display:block; }
+  #map.batch-mode .pin-name-label{ display:block; }
   #map.hide-name-labels .pin-name-label{ display:none; }
   /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。名前ラベルと同じく常時表示。 */
   .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
@@ -212,12 +216,14 @@
 
   /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
   .building-name-label{
-    display:block;
+    display:none;
     transform:translate(-50%, -50%); white-space:nowrap;
     background:rgba(255,255,255,.92); color:#1f2937;
     font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
     box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
   }
+  #map.zoom-close .building-name-label{ display:block; }
+  #map.batch-mode .building-name-label{ display:block; }
   #map.hide-name-labels .building-name-label{ display:none; }
   .badge{ position:absolute; transform:rotate(45deg); font-size:12px; line-height:1;
     background:#fff; border-radius:50%; width:16px; height:16px; display:flex; align-items:center; justify-content:center;
@@ -1768,6 +1774,15 @@ function initMap(){
   map.on('zoom', updateZoomStatus);
   map.on('zoomend', updateZoomStatus);
   updateZoomStatus();
+
+  // 通常表示（配達組で絞り込んでいない時）は地点数が多いため、
+  // ある程度拡大した時だけ名前ラベルを出す（配達組で表示中は #map.batch-mode の方で常時表示にする）
+  const NAME_LABEL_MIN_ZOOM = 17;
+  const updateNameLabelVisibility = () => {
+    document.getElementById('map').classList.toggle('zoom-close', map.getZoom() >= NAME_LABEL_MIN_ZOOM);
+  };
+  map.on('zoomend', updateNameLabelVisibility);
+  updateNameLabelVisibility();
 
   // ---------- 選択中の線を全体ドラッグで移動する ----------
   map.on('mousedown', () => {
@@ -5043,6 +5058,7 @@ document.getElementById('deleteAllYesBtn').addEventListener('click', async () =>
   currentBatchItems = [];
   batchOriginKey = 'current';
   batchModeActive = false;
+  document.getElementById('map').classList.remove('batch-mode');
   document.getElementById('batchModeBanner').style.display = 'none';
   document.getElementById('navTargetWidget').style.display = 'none';
   document.getElementById('nextStopBar').style.display = 'none';
@@ -5393,6 +5409,7 @@ document.getElementById('batchClearBtn').addEventListener('click', () => {
 document.getElementById('batchApplyBtn').addEventListener('click', () => {
   if (currentBatchItems.length === 0) return;
   batchModeActive = true;
+  document.getElementById('map').classList.add('batch-mode');
   document.getElementById('searchOverlay').classList.remove('open');
   renderAllMarkers();
   // 選んだ地点がすべて画面に収まるよう、地図の位置・拡大率を自動調整する
@@ -5404,6 +5421,7 @@ document.getElementById('batchApplyBtn').addEventListener('click', () => {
 });
 document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   batchModeActive = false;
+  document.getElementById('map').classList.remove('batch-mode');
   document.getElementById('batchModeBanner').style.display = 'none';
   updateHeaderHeightVar();
   renderAllMarkers();
