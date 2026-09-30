@@ -207,12 +207,18 @@
   /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。名前ラベルと同じく常時表示。 */
   .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
     font-size:9px; font-weight:700; color:#fff; vertical-align:middle; }
-  /* 配達組の間だけ出す、紐づけた停車位置の方向矢印。ピンの真上、回転の基準点は
+  /* 停車方向の矢印。ピンの真下に表示する。回転の基準点は
      矢印自身の中心（left:50%+translateXで先に中央寄せしてから回転する）。 */
   .parking-dir-arrow{
-    position:absolute; top:-18px; left:50%; font-size:14px; line-height:1; pointer-events:none;
+    position:absolute; bottom:-18px; left:50%; font-size:14px; line-height:1; pointer-events:none;
     filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));
   }
+  /* 地点登録画面：停車方向を選ぶ9個のボタン（8方位＋どちらでも） */
+  .dir-btn{
+    padding:9px 4px; border:1px solid var(--line); border-radius:8px;
+    background:var(--paper); color:var(--ink); font-size:12px; cursor:pointer;
+  }
+  .dir-btn.selected{ background:var(--blue); color:#fff; border-color:var(--blue); font-weight:700; }
 
   /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
   .building-name-label{
@@ -726,10 +732,21 @@
             style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);">
             <option value="">選択しない</option>
           </select>
-          <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-top:8px; color:var(--sub); cursor:pointer;">
-            <input type="checkbox" id="parkingEitherSideInput" /> ⇔ 停車位置への方向はどちらでも良い（配達組の地図では矢印の代わりに⇔を表示）
-          </label>
         </div>
+
+        <label class="field-label" style="margin-top:14px;">停車方向の矢印（任意・地図上のアイコン下に表示。全体図・配達組どちらでも表示されます）</label>
+        <div id="parkingDirPicker" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
+          <button type="button" class="dir-btn" data-dir="315">↖ 北西</button>
+          <button type="button" class="dir-btn" data-dir="0">↑ 北</button>
+          <button type="button" class="dir-btn" data-dir="45">↗ 北東</button>
+          <button type="button" class="dir-btn" data-dir="270">← 西</button>
+          <button type="button" class="dir-btn" data-dir="either">⇔ どちらでも</button>
+          <button type="button" class="dir-btn" data-dir="90">→ 東</button>
+          <button type="button" class="dir-btn" data-dir="225">↙ 南西</button>
+          <button type="button" class="dir-btn" data-dir="180">↓ 南</button>
+          <button type="button" class="dir-btn" data-dir="135">↘ 南東</button>
+        </div>
+        <button type="button" class="btn btn-secondary" id="parkingDirClearBtn" style="width:100%; margin-top:8px; padding:8px; font-size:12px;">矢印を消す（未設定に戻す）</button>
       </div>
 
       <label class="field-label">写真（任意・複数枚追加できます）</label>
@@ -1321,6 +1338,24 @@ let originMarker = null; // 「配達先を組む」で出発地点が現在地�
 let pendingLatLng = null;
 let pendingType = null;
 let pendingParkingCategory = 'general';
+let pendingParkingDirValue = null; // 停車方向：数値(度)の文字列 / 'either' / null(未設定)
+
+function updateParkingDirPickerUI(){
+  document.querySelectorAll('#parkingDirPicker .dir-btn').forEach(btn => {
+    btn.classList.toggle('selected', pendingParkingDirValue !== null && btn.dataset.dir === String(pendingParkingDirValue));
+  });
+}
+document.getElementById('parkingDirPicker').addEventListener('click', (e) => {
+  const btn = e.target.closest('.dir-btn');
+  if (!btn) return;
+  // もう一度同じボタンを押したら選択解除（未設定に戻す）
+  pendingParkingDirValue = (pendingParkingDirValue === btn.dataset.dir) ? null : btn.dataset.dir;
+  updateParkingDirPickerUI();
+});
+document.getElementById('parkingDirClearBtn').addEventListener('click', () => {
+  pendingParkingDirValue = null;
+  updateParkingDirPickerUI();
+});
 function buildParkingCategoryPicker(){
   const wrap = document.getElementById('parkingCategoryPicker');
   wrap.innerHTML = '';
@@ -3033,19 +3068,24 @@ function addMarkerToMap(p){
   const originLabel = isRouteOrigin
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
 
-  // 配達組（本便のみ表示中）の間だけ、紐づけた停車位置がどちらの方向かを小さな矢印で示す。
-  // 表示件数がぐっと絞られている時なので、矢印を足しても邪魔になりにくい。
-  // （通常の全件表示では矢印だらけになってしまうため、バッチモード中に限定する）
+  // 停車方向の矢印（アイコン下に表示）。全体図・配達組どちらでも常に表示する。
+  // 地点登録画面で直接指定した方角(parkingDirValue)を最優先で使い、
+  // 指定が無く、かつ停車位置を紐づけている（parkingPointId）場合だけ、
+  // その紐づけ先の方角から自動計算する（以前からの機能との後方互換）。
   let parkingDirArrow = '';
-  if (batchModeActive && p.type === 'delivery' && p.parkingPointId && !p.parkHere) {
-    const parkingPt = points.find(pt => pt.id === p.parkingPointId);
-    if (parkingPt) {
-      const brng = bearingDegrees(p.lat, p.lng, parkingPt.lat, parkingPt.lng);
-      if (p.parkingEitherSide) {
-        // ⇔ は左右方向の記号なので、その軸(90°/270°)を方角に合わせるため -90°して回転させる
-        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng - 90}deg);" title="停車位置の方向（どちらでも可）">⇔</div>`;
+  if (p.type === 'delivery') {
+    let dirVal = (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '')
+      ? p.parkingDirValue : null;
+    if (dirVal === null && p.parkingPointId && !p.parkHere) {
+      const parkingPt = points.find(pt => pt.id === p.parkingPointId);
+      if (parkingPt) dirVal = String(Math.round(bearingDegrees(p.lat, p.lng, parkingPt.lat, parkingPt.lng)));
+    }
+    if (dirVal !== null) {
+      if (dirVal === 'either') {
+        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%);" title="停車方向（どちらでも可）">⇔</div>`;
       } else {
-        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng}deg);" title="停車位置の方向">⬆️</div>`;
+        const brng = Number(dirVal);
+        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng}deg);" title="停車方向">⬆️</div>`;
       }
     }
   }
@@ -3203,7 +3243,8 @@ function openNewSheet(latlng){
   document.getElementById('photoInput').value = '';
   document.getElementById('linkedParkingSelect').value = '';
   document.getElementById('parkHereInput').checked = false;
-  document.getElementById('parkingEitherSideInput').checked = false;
+  pendingParkingDirValue = null;
+  updateParkingDirPickerUI();
   document.getElementById('parkingSelectWrap').style.display = 'block';
   renderPhotoPreviewList();
   document.getElementById('btnDelivery').classList.remove('selected');
@@ -3249,7 +3290,9 @@ function openEditSheet(id){
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
-  document.getElementById('parkingEitherSideInput').checked = !!p.parkingEitherSide;
+  pendingParkingDirValue = (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '')
+    ? String(p.parkingDirValue) : null;
+  updateParkingDirPickerUI();
 
   openSheetOverlay('newOverlay');
 }
@@ -3729,7 +3772,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
       p.isBase = (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
-      p.parkingEitherSide = (pendingType === 'delivery' && p.parkingPointId) ? document.getElementById('parkingEitherSideInput').checked : false;
+      p.parkingDirValue = (pendingType === 'delivery') ? pendingParkingDirValue : null;
       savedPointForOutline = p;
     }
   } else {
@@ -3755,8 +3798,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       isBase: (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
-      parkingEitherSide: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked && document.getElementById('linkedParkingSelect').value)
-        ? document.getElementById('parkingEitherSideInput').checked : false,
+      parkingDirValue: (pendingType === 'delivery') ? pendingParkingDirValue : null,
       createdAt: Date.now(),
             updatedAt: Date.now(),
             createdBy: currentUserName
