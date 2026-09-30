@@ -178,6 +178,10 @@
     border-radius:50%; background:rgba(79,160,214,.25); animation:pulse 2s infinite; }
   @keyframes pulse{ 0%{transform:scale(.5);opacity:1;} 100%{transform:scale(1.6);opacity:0;} }
 
+  /* 現在地の進行方向（地図自体は回転できないので、代わりに向きが分かる三角コーンを表示する） */
+  .me-heading-cone{ position:absolute; top:-42px; left:-42px; width:100px; height:100px;
+    pointer-events:none; transition:transform .25s linear; }
+
   /* 地点ピン */
   .pin{ width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
     box-shadow:0 2px 5px rgba(0,0,0,.35); border:2px solid #fff; position:relative; }
@@ -185,30 +189,36 @@
   .pin-inner{ position:absolute; top:6px; left:6px; width:14px; height:14px; border-radius:50%; background:#fff; }
 
   /* ピン横の名前ラベル：ゼンリンの住宅地図のように、地図を見ただけで
-     「誰の場所か」が分かることを重視する。拡大しすぎると文字だらけになるため、
-     ある程度拡大したときだけ出す。設定でも表示/非表示を切り替えられる。 */
+     「誰の場所か」が分かることを重視する。登録地点は画面に出ていても数える程度のことが
+     多いため、拡大率に関わらず常に出す（設定の「名前ラベルを表示」トグルでは今まで通り
+     オフにできる）。 */
   .pin-name-label{
-    display:none;
+    display:block;
     position:absolute; top:2px; left:32px; white-space:nowrap;
     background:rgba(255,255,255,.92); color:#1f2937;
     font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
     box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
   }
-  #map.zoom-close:not(.hide-name-labels) .pin-name-label{ display:block; }
-  /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。ピン本体の色付き枠（リング）は
-     常時見えるが、この文字は名前ラベルと同じく拡大時のみ出す。 */
+  #map.hide-name-labels .pin-name-label{ display:none; }
+  /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。名前ラベルと同じく常時表示。 */
   .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
     font-size:9px; font-weight:700; color:#fff; vertical-align:middle; }
+  /* 配達組の間だけ出す、紐づけた停車位置の方向矢印。ピンの真上、回転の基準点は
+     矢印自身の中心（left:50%+translateXで先に中央寄せしてから回転する）。 */
+  .parking-dir-arrow{
+    position:absolute; top:-18px; left:50%; font-size:14px; line-height:1; pointer-events:none;
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));
+  }
 
   /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
   .building-name-label{
-    display:none;
+    display:block;
     transform:translate(-50%, -50%); white-space:nowrap;
     background:rgba(255,255,255,.92); color:#1f2937;
     font-size:11px; font-weight:700; padding:2px 6px; border-radius:5px;
     box-shadow:0 1px 3px rgba(0,0,0,.3); pointer-events:none;
   }
-  #map.zoom-close:not(.hide-name-labels) .building-name-label{ display:block; }
+  #map.hide-name-labels .building-name-label{ display:none; }
   .badge{ position:absolute; transform:rotate(45deg); font-size:12px; line-height:1;
     background:#fff; border-radius:50%; width:16px; height:16px; display:flex; align-items:center; justify-content:center;
     box-shadow:0 1px 3px rgba(0,0,0,.4); }
@@ -710,6 +720,9 @@
             style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);">
             <option value="">選択しない</option>
           </select>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-top:8px; color:var(--sub); cursor:pointer;">
+            <input type="checkbox" id="parkingEitherSideInput" /> ⇔ 停車位置への方向はどちらでも良い（配達組の地図では矢印の代わりに⇔を表示）
+          </label>
         </div>
       </div>
 
@@ -898,12 +911,17 @@
 
 <!-- 検索シート -->
 <div class="sheet-overlay" id="searchOverlay">
-  <div class="sheet">
+  <div class="sheet sheet-flex">
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
-    <div class="handle"></div>
-    <h2>🔍 地点を検索</h2>
-    <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
-      style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; margin-bottom:12px; background:var(--paper); color:var(--ink);" />
+    <div class="sheet-fixed-top">
+      <div class="handle"></div>
+      <h2>🔍 地点を検索</h2>
+      <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
+        style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      <div id="searchHistoryRow" style="display:none; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+    </div>
+
+    <div class="sheet-scroll-body">
     <div id="batchBar" style="display:none; flex-direction:column; gap:8px;
       background:var(--bg); border-radius:10px; padding:10px; margin-bottom:10px; font-size:12px;">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
@@ -913,7 +931,7 @@
           <button type="button" class="btn btn-primary" id="batchApplyBtn" style="padding:6px 10px; font-size:11px;">地図に表示</button>
         </div>
       </div>
-      <div id="batchItemList" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+      <div id="batchItemList" style="display:flex; flex-direction:column; gap:4px; max-height:215px; overflow-y:auto;"></div>
       <div style="display:flex; align-items:center; gap:8px;">
         <label style="flex-shrink:0; color:var(--sub);">🚩 出発地点</label>
         <select id="batchOriginSelect" style="flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; background:var(--paper); color:var(--ink);"></select>
@@ -947,8 +965,12 @@
         background:#8B5CF6; color:#fff; border:none; border-radius:10px;">📌 まだ登録していない場所として仮登録する</button>
       <p style="font-size:11px; color:var(--sub); margin:4px 0 0;">現地に着いたら、詳細画面から内容を入力・保存すれば本登録になります</p>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
+    </div>
+
+    <div class="sheet-fixed-bottom">
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn btn-secondary" id="closeSearchBtn">閉じる</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1289,6 +1311,7 @@ let points = [];          // {id, lat, lng, type, memo, photo, attention, create
 let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
 let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
 let map, myMarker, markersLayer, buildingOutlineLayer, traceHeatmapLayer, drawingsLayer, stampsLayer, myTrailLayer;
+let originMarker = null; // 「配達先を組む」で出発地点が現在地の時だけ出す、目印用のマーカー
 let pendingLatLng = null;
 let pendingType = null;
 let pendingParkingCategory = 'general';
@@ -1573,6 +1596,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadTraceGrid(); // 設定を反映する時点でヒートマップを描けるよう、先に読み込んでおく
   await loadTrail(); // 同様に、軌跡もトグルの反映前に読み込んでおく
   loadDrawSettings(); // 位置の設定もここで読み込み、applyLayoutPositionsまで行う
+  loadSearchHistory();
   await loadPoints();
   await resetDailyStatusIfNeeded(); // 日付が変わっていたら「完了」を「未対応」に戻す
   await loadDrawings();
@@ -1744,14 +1768,6 @@ function initMap(){
   map.on('zoom', updateZoomStatus);
   map.on('zoomend', updateZoomStatus);
   updateZoomStatus();
-
-  // 地図をある程度拡大したときだけ、ピンの横に名前を出す（誰の場所か一目で分かるようにする）
-  const NAME_LABEL_MIN_ZOOM = 17;
-  const updateNameLabelVisibility = () => {
-    document.getElementById('map').classList.toggle('zoom-close', map.getZoom() >= NAME_LABEL_MIN_ZOOM);
-  };
-  map.on('zoomend', updateNameLabelVisibility);
-  updateNameLabelVisibility();
 
   // ---------- 選択中の線を全体ドラッグで移動する ----------
   map.on('mousedown', () => {
@@ -2120,7 +2136,7 @@ function initMap(){
     setGpsStatus('取得中…');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        placeMyMarker([pos.coords.latitude, pos.coords.longitude]);
+        placeMyMarker([pos.coords.latitude, pos.coords.longitude], pos.coords.heading);
         map.setView(myMarker.getLatLng(), 16);
         setFollowMyLocation(true);
       },
@@ -2154,20 +2170,103 @@ function setGpsStatus(text){
   if (el) el.textContent = '現在地：' + text;
 }
 
-function placeMyMarker(latlng){
+// ---------- 現在地の進行方向（三角コーン表示） ----------
+// 地図そのものを進行方向に回転させることはできないので、代わりに現在地マーカーの
+// そばに「今どちらへ進んでいるか」が分かる三角コーンを表示する。
+// ・端末のGPSが進行方向(heading)を返せる場合はそれを使う（動いている時だけ入る値なので信頼できる）
+// ・返せない場合は、直前の位置との移動方向から自分で方角を計算する
+// ・バックしている場合も、GPSの位置そのものが後ろへ動くため、コーンは実際に動いている
+//   （＝下がっている）方向を指す。前進かバックかを区別しているわけではなく、
+//   「実際に位置がどちらへ動いているか」をそのまま表す。
+let myHeading = null; // 度数（0=北、時計回り）。まだ動いていない間はnullでコーンを隠す
+let lastHeadingPoint = null; // 方角を計算するための直前の位置
+const HEADING_MIN_MOVE_M = 3; // これ未満の移動はGPSのブレとみなし、向きを更新しない
+
+function updateMyHeading(lat, lng, nativeHeading){
+  if (typeof nativeHeading === 'number' && !Number.isNaN(nativeHeading)) {
+    myHeading = nativeHeading;
+    lastHeadingPoint = { lat, lng };
+    return;
+  }
+  if (lastHeadingPoint) {
+    const distM = distanceMeters(lastHeadingPoint.lat, lastHeadingPoint.lng, lat, lng);
+    if (distM >= HEADING_MIN_MOVE_M) {
+      myHeading = bearingDegrees(lastHeadingPoint.lat, lastHeadingPoint.lng, lat, lng);
+      lastHeadingPoint = { lat, lng };
+    }
+  } else {
+    lastHeadingPoint = { lat, lng };
+  }
+}
+
+function buildMyMarkerIcon(){
+  const coneStyle = (myHeading === null)
+    ? 'display:none;'
+    : `transform:rotate(${myHeading}deg);`;
+  const html = `
+    <div style="position:relative;">
+      <div class="me-heading-cone" style="${coneStyle}">
+        <svg width="100" height="100" viewBox="-50 -50 100 100" style="overflow:visible;">
+          <defs>
+            <linearGradient id="meHeadingGrad" x1="0" y1="0" x2="0" y2="-42" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#2563EB" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="#2563EB" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M 0,0 L -15,-42 L 15,-42 Z" fill="url(#meHeadingGrad)"/>
+        </svg>
+      </div>
+      <div class="me-pulse"></div>
+      <div class="me-dot"></div>
+    </div>`;
+  return L.divIcon({ className:'', html, iconSize:[16,16], iconAnchor:[8,8] });
+}
+
+function placeMyMarker(latlng, nativeHeading){
+  updateMyHeading(latlng[0], latlng[1], nativeHeading);
   if (!myMarker) {
-    const icon = L.divIcon({
-      className:'',
-      html:'<div style="position:relative;"><div class="me-pulse"></div><div class="me-dot"></div></div>',
-      iconSize:[16,16],
-      iconAnchor:[8,8]
-    });
-    myMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+    myMarker = L.marker(latlng, { icon: buildMyMarkerIcon(), zIndexOffset: 1000 }).addTo(map);
   } else {
     myMarker.setLatLng(latlng); // 移動に合わせてマーカーを動かす
+    myMarker.setIcon(buildMyMarkerIcon()); // 進行方向コーンの向きを更新する
   }
   setGpsStatus('取得できました');
   renderNavWidget(); renderNextStopBar();
+  renderOriginMarker(); // 出発地点＝現在地の時、こちらの位置も一緒に追従させる
+}
+
+// 「配達先を組む」で出発地点を現在地にしている間だけ、通常のGPSの点とは別に
+// 「ここが出発地点」と分かる目印を出す。タップすると出発地点を選び直せる。
+function renderOriginMarker(){
+  const shouldShow = batchModeActive && batchOriginKey === 'current' && myMarker;
+  if (!shouldShow) {
+    if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
+    return;
+  }
+  const latlng = myMarker.getLatLng();
+  const html = `
+    <div style="position:relative; width:34px; height:34px;">
+      <div style="width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+        background:#2563EB; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.35);
+        display:flex; align-items:center; justify-content:center;">
+        <div style="transform:rotate(45deg); font-size:13px; line-height:1;">🚩</div>
+      </div>
+      <div class="pin-name-label" style="display:block; top:-6px; left:38px; background:#2563eb; color:#fff; font-weight:700; white-space:nowrap;">🚩 出発地点（現在地）</div>
+    </div>`;
+  const icon = L.divIcon({ className:'', html, iconSize:[34,34], iconAnchor:[17,30], popupAnchor:[0,-28] });
+  if (!originMarker) {
+    originMarker = L.marker(latlng, { icon, zIndexOffset: 1500 }).addTo(map);
+    originMarker.on('click', () => {
+      // タップしたら、出発地点を選び直せる検索シートをそのまま開く
+      openSearchOverlay();
+      setTimeout(() => {
+        const sel = document.getElementById('batchOriginSelect');
+        if (sel) { sel.scrollIntoView({ block:'center' }); sel.focus(); }
+      }, 200);
+    });
+  } else {
+    originMarker.setLatLng(latlng);
+  }
 }
 
 // ---------- 足跡の記録・時間帯別の「通りにくさ」の蓄積 ----------
@@ -2664,7 +2763,7 @@ function startWatchingMyLocation(){
     (pos) => {
       const latlng = [pos.coords.latitude, pos.coords.longitude];
       const firstTime = !myMarker;
-      placeMyMarker(latlng);
+      placeMyMarker(latlng, pos.coords.heading);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
@@ -2902,11 +3001,13 @@ function addMarkerToMap(p){
   const ratingChip = (p.type === 'delivery' && p.rating)
     ? `<span class="rating-chip" style="background:${ratingColor(p.rating)};">${p.rating}</span>` : '';
   // ゼンリンの住宅地図のように「その場所に誰がいるか」が一目で分かることを重視し、
-  // ある程度拡大したらピンの横に名前を出す（詳細を開かなくても分かるようにする）。
+  // 拡大率に関わらずピンの横に常に名前を出す（詳細を開かなくても分かるようにする）。
+  // 名前が無ければ住所、それも無ければ「未登録」「仮登録」を出し、必ず何か表示されるようにする。
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
-  const displayName = p.name || p.nameKana || '';
+  let displayName = p.name || p.nameKana || p.address || '';
+  if (!displayName) displayName = p.provisional ? '仮登録' : '未登録';
   let nameLabel = '';
-  if (displayName && !p.buildingOutline) {
+  if (!p.buildingOutline) {
     nameLabel = `<div class="pin-name-label">${escapeHtml(displayName)}${ratingChip}</div>`;
   } else if (ratingChip) {
     nameLabel = `<div class="pin-name-label">${ratingChip}</div>`;
@@ -2916,6 +3017,23 @@ function addMarkerToMap(p){
   const isRouteOrigin = batchModeActive && p.id === batchOriginKey;
   const originLabel = isRouteOrigin
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
+
+  // 配達組（本便のみ表示中）の間だけ、紐づけた停車位置がどちらの方向かを小さな矢印で示す。
+  // 表示件数がぐっと絞られている時なので、矢印を足しても邪魔になりにくい。
+  // （通常の全件表示では矢印だらけになってしまうため、バッチモード中に限定する）
+  let parkingDirArrow = '';
+  if (batchModeActive && p.type === 'delivery' && p.parkingPointId && !p.parkHere) {
+    const parkingPt = points.find(pt => pt.id === p.parkingPointId);
+    if (parkingPt) {
+      const brng = bearingDegrees(p.lat, p.lng, parkingPt.lat, parkingPt.lng);
+      if (p.parkingEitherSide) {
+        // ⇔ は左右方向の記号なので、その軸(90°/270°)を方角に合わせるため -90°して回転させる
+        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng - 90}deg);" title="停車位置の方向（どちらでも可）">⇔</div>`;
+      } else {
+        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng}deg);" title="停車位置の方向">⬆️</div>`;
+      }
+    }
+  }
 
   let icon;
   if (parkingCat && parkingCat.colors) {
@@ -2939,6 +3057,7 @@ function addMarkerToMap(p){
           ${p.isBase ? '<div class="badge badge-base">🚩</div>' : ''}
           ${p.provisional ? '<div class="badge badge-provisional">仮</div>' : ''}
         </div>
+        ${parkingDirArrow}
         ${originLabel || nameLabel}
       </div>`;
     icon = L.divIcon({ className:'', html, iconSize:[30, 30], iconAnchor:[15,30], popupAnchor:[0,-28] });
@@ -2970,9 +3089,9 @@ function addGroupMarkerToMap(group){
   const anchor = group[0];
   const openTarget = group.find(pt => pt.status !== 'done') || group[0];
   const isRouteOriginGroup = batchModeActive && group.some(pt => pt.id === batchOriginKey);
-  const displayNames = group.map(pt => pt.name || pt.nameKana).filter(Boolean);
-  const nameLabel = displayNames.length
-    ? `<div class="pin-name-label">${escapeHtml(displayNames[0])} 他${group.length - 1}件</div>` : '';
+  // 名前が無ければ住所、それも無ければ「未登録」を出し、必ず何か表示されるようにする
+  const anchorLabel = anchor.name || anchor.nameKana || anchor.address || '未登録';
+  const nameLabel = `<div class="pin-name-label">${escapeHtml(anchorLabel)} 他${group.length - 1}件</div>`;
   const originLabel = isRouteOriginGroup
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
   const html = `
@@ -3069,6 +3188,7 @@ function openNewSheet(latlng){
   document.getElementById('photoInput').value = '';
   document.getElementById('linkedParkingSelect').value = '';
   document.getElementById('parkHereInput').checked = false;
+  document.getElementById('parkingEitherSideInput').checked = false;
   document.getElementById('parkingSelectWrap').style.display = 'block';
   renderPhotoPreviewList();
   document.getElementById('btnDelivery').classList.remove('selected');
@@ -3114,6 +3234,7 @@ function openEditSheet(id){
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
+  document.getElementById('parkingEitherSideInput').checked = !!p.parkingEitherSide;
 
   openSheetOverlay('newOverlay');
 }
@@ -3593,6 +3714,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
       p.isBase = (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
+      p.parkingEitherSide = (pendingType === 'delivery' && p.parkingPointId) ? document.getElementById('parkingEitherSideInput').checked : false;
       savedPointForOutline = p;
     }
   } else {
@@ -3618,6 +3740,8 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       isBase: (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
+      parkingEitherSide: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked && document.getElementById('linkedParkingSelect').value)
+        ? document.getElementById('parkingEitherSideInput').checked : false,
       createdAt: Date.now(),
             updatedAt: Date.now(),
             createdBy: currentUserName
@@ -3784,11 +3908,13 @@ function renderBuildingOutlineForPoint(p){
   L.polygon(p.buildingOutline, {
     color: color, weight:2, fillColor: color, fillOpacity:0.15, interactive:false
   }).addTo(buildingOutlineLayer);
-  if (p.name || p.nameKana) {
+  {
+    // 名前が無ければ住所、それも無ければ「未登録」「仮登録」を出し、必ず何か表示されるようにする
+    let label = p.name || p.nameKana || p.address || (p.provisional ? '仮登録' : '未登録');
     const centroid = polygonCentroid(p.buildingOutline);
     const icon = L.divIcon({
       className:'',
-      html: `<div class="building-name-label">${escapeHtml(p.name || p.nameKana)}</div>`,
+      html: `<div class="building-name-label">${escapeHtml(label)}</div>`,
       iconSize:[0,0]
     });
     L.marker(centroid, { icon, interactive:false }).addTo(buildingOutlineLayer);
@@ -3863,10 +3989,8 @@ function distanceMeters(lat1, lng1, lat2, lng2){
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 function compassDirection(lat1, lng1, lat2, lng2){
-  const toRad = d => d * Math.PI / 180;
-  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
-  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
-  const brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  // 度数(bearingDegrees)は、上の「現在地からの方角」表示と共通の計算式を使う
+  const brng = bearingDegrees(lat1, lng1, lat2, lng2);
   const dirs = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
   return dirs[Math.round(brng / 45) % 8];
 }
@@ -5178,6 +5302,17 @@ function setupBatchDragReorder(listEl){
           currentBatchItems.splice(newIndex, 0, moved);
           curIndex = newIndex;
         }
+        // 指を離す前から「入れ替わりそう」と分かるよう、押しのけられる側の行も
+        // その場でスライドさせる（rowsは元の並び順のままなので、開始位置と現在位置の
+        // 間にある行だけを1つ分ずらせば良い）
+        rows.forEach((otherRow, i) => {
+          if (i === startIndex) return; // ドラッグ中の本人は上ですでに動かしている
+          let offset = 0;
+          if (startIndex < curIndex && i > startIndex && i <= curIndex) offset = -rowHeight;
+          else if (startIndex > curIndex && i >= curIndex && i < startIndex) offset = rowHeight;
+          otherRow.style.transition = 'transform .15s ease';
+          otherRow.style.transform = offset ? `translateY(${offset}px)` : '';
+        });
       };
       const onUp = () => {
         handle.removeEventListener('pointermove', onMove);
@@ -5242,10 +5377,11 @@ function updateBatchBar(){
   }
   originSelect.innerHTML = optionsHtml;
   originSelect.value = batchOriginKey;
+  renderOriginMarker();
 }
 document.getElementById('batchOriginSelect').addEventListener('change', (e) => {
   batchOriginKey = e.target.value;
-  renderNavWidget(); renderNextStopBar();
+  renderNavWidget(); renderNextStopBar(); renderOriginMarker();
 });
 document.getElementById('batchClearBtn').addEventListener('click', () => {
   currentBatchItems = [];
@@ -5264,13 +5400,14 @@ document.getElementById('batchApplyBtn').addEventListener('click', () => {
   document.getElementById('batchModeBannerText').textContent = `🚚 本便のみ表示中（${currentBatchItems.length}件）`;
   document.getElementById('batchModeBanner').style.display = 'flex';
   updateHeaderHeightVar(); // バナーの分ヘッダーが高くなった分、四隅メニューの位置も追従させる
-  renderNavWidget(); renderNextStopBar();
+  renderNavWidget(); renderNextStopBar(); renderOriginMarker();
 });
 document.getElementById('batchModeOffBtn').addEventListener('click', () => {
   batchModeActive = false;
   document.getElementById('batchModeBanner').style.display = 'none';
   updateHeaderHeightVar();
   renderAllMarkers();
+  renderOriginMarker();
   renderNavWidget(); renderNextStopBar();
 });
 document.getElementById('batchRouteBtn').addEventListener('click', () => {
@@ -5520,6 +5657,8 @@ async function runGeocodeSearch(){
     // 「入力し直し」が必要になってしまうため。
     const apiLabel = lastGeocodeResult.label;
     lastGeocodeResult.label = rawQuery;
+    saveSearchHistoryEntry(rawQuery); // 見つかった検索は、次回すぐ呼び出せるよう履歴に残す
+    renderSearchHistory();
     document.getElementById('geocodeResultLabel').textContent =
       (approximate ? '大まかな位置が見つかりました：' : '見つかりました：') + rawQuery +
       (apiLabel && apiLabel !== rawQuery ? `\n（地図側の表記：${apiLabel}）` : '');
@@ -5631,6 +5770,49 @@ document.getElementById('geocodeAddRoomBtn').addEventListener('click', async () 
   setTimeout(() => openDetailSheet(point.id), 300);
 });
 
+// ---------- 住所検索の履歴 ----------
+// 毎回同じ住所を入力し直さなくていいよう、実際に見つかった検索キーワードを覚えておく。
+const SEARCH_HISTORY_KEY = 'delivery-search-history-v1';
+const SEARCH_HISTORY_MAX = 8;
+let searchHistory = [];
+function loadSearchHistory(){
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+    searchHistory = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    searchHistory = [];
+  }
+}
+function saveSearchHistoryEntry(query){
+  const q = query.trim();
+  if (!q) return;
+  searchHistory = searchHistory.filter(item => item !== q); // 同じ物があれば一旦外し、先頭に出し直す
+  searchHistory.unshift(q);
+  if (searchHistory.length > SEARCH_HISTORY_MAX) searchHistory.length = SEARCH_HISTORY_MAX;
+  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory)); } catch (e) {}
+}
+function renderSearchHistory(){
+  const row = document.getElementById('searchHistoryRow');
+  if (!row) return;
+  if (searchHistory.length === 0) { row.style.display = 'none'; return; }
+  row.innerHTML = searchHistory.map(q => `
+    <button type="button" class="search-history-chip" data-q="${escapeHtml(q)}"
+      style="background:var(--bg); border:1px solid var(--line); border-radius:99px; padding:5px 12px;
+        font-size:12px; color:var(--ink); white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis;">
+      🕐 ${escapeHtml(q)}
+    </button>
+  `).join('');
+  row.querySelectorAll('.search-history-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const q = btn.dataset.q;
+      document.getElementById('searchInput').value = q;
+      runSearch(q);
+      runGeocodeSearch();
+    });
+  });
+  row.style.display = 'flex';
+}
+
 function openSearchOverlay(){
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
@@ -5639,6 +5821,7 @@ function openSearchOverlay(){
   document.getElementById('geocodeResultRow').style.display = 'none';
   lastGeocodeResult = null;
   updateBatchBar(); // 前回選び途中の「便」があれば、そのまま引き継いで表示する
+  renderSearchHistory();
   openSheetOverlay('searchOverlay');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
 }
