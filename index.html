@@ -782,6 +782,10 @@
         <div style="font-size:11px; color:#7C3AED; font-weight:700;" id="detailBuildingPosText">🏢 この建物の他の部屋</div>
         <div style="display:flex; justify-content:center; align-items:center; gap:4px; margin-top:5px;" id="detailBuildingDots"></div>
         <div style="font-size:10px; color:#8B5CF6; margin-top:3px;">◀ 左右にスワイプ ▶</div>
+        <button type="button" id="detailBuildingDetachBtn"
+          style="margin-top:5px; background:none; border:none; color:#7C3AED; font-size:10px; text-decoration:underline; padding:2px;">
+          🔓 この部屋だけ切り離す
+        </button>
       </div>
       <button type="button" id="detailBuildingNextBtn" aria-label="次の部屋"
         style="flex-shrink:0; width:36px; height:36px; border-radius:8px; border:none; background:#fff; color:#7C3AED; font-size:20px; font-weight:700;">›</button>
@@ -1205,6 +1209,21 @@ const STORAGE_KEY = 'delivery-points-v1';
 const USER_NAME_KEY = 'delivery-user-name-v1';
 let currentUserName = '';
 
+// シート（下から出てくるパネル）を開く共通処理。
+// 中身の.sheetは前回開いた時のスクロール位置が残ったままになるため、
+// 開き直す時は必ず一番上に戻す（そうしないと、長い内容の途中から始まって見える）。
+function openSheetOverlay(overlayId){
+  const overlay = document.getElementById(overlayId);
+  if (!overlay) return;
+  overlay.classList.add('open');
+  const sheetEl = overlay.querySelector('.sheet');
+  if (sheetEl) sheetEl.scrollTop = 0;
+  // 登録・編集シートは中身が長いため、見出し部分は固定し内側だけがスクロールする
+  // 別構造（.sheet-scroll-body）になっている。こちらのスクロール位置も戻す必要がある。
+  const scrollBodyEl = overlay.querySelector('.sheet-scroll-body');
+  if (scrollBodyEl) scrollBodyEl.scrollTop = 0;
+}
+
 function loadUserName(){
   try {
     currentUserName = localStorage.getItem(USER_NAME_KEY) || '';
@@ -1212,7 +1231,7 @@ function loadUserName(){
     currentUserName = '';
   }
   if (!currentUserName) {
-    document.getElementById('userNameOverlay').classList.add('open');
+    openSheetOverlay('userNameOverlay');
   }
 }
 function saveUserName(name){
@@ -2795,7 +2814,11 @@ function addressSimilarity(a, b){
 }
 
 function findBuildingSiblings(p){
+  // 「この部屋だけ切り離す」を選んだ地点は、距離や住所が一致していても
+  // 常に単独（グループに含めない・自分からも他を含めない）として扱う。
+  if (p.buildingGroupDetached) return [p];
   return points
+    .filter(pt => !pt.buildingGroupDetached)
     .filter(pt => pt.type === p.type)
     .filter(pt => distanceMeters(pt.lat, pt.lng, p.lat, p.lng) <= BUILDING_GROUP_RADIUS_M)
     .filter(pt => addressSimilarity(pt.address, p.address) >= ADDRESS_MATCH_THRESHOLD)
@@ -3055,7 +3078,7 @@ function openNewSheet(latlng){
   document.getElementById('boxPasswordWrap').style.display = 'none'; // 種類を選ぶまでは、配達先専用の項目は隠しておく
   document.getElementById('typeRow').style.display = pendingParkingLinkTargetId ? 'none' : 'flex';
   if (pendingParkingLinkTargetId) selectType('parking'); // 紐づけ待ちのときは種類を固定する
-  document.getElementById('newOverlay').classList.add('open');
+  openSheetOverlay('newOverlay');
 }
 
 function openEditSheet(id){
@@ -3092,7 +3115,7 @@ function openEditSheet(id){
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
 
-  document.getElementById('newOverlay').classList.add('open');
+  openSheetOverlay('newOverlay');
 }
 
 document.getElementById('btnDelivery').addEventListener('click', () => selectType('delivery'));
@@ -3257,7 +3280,7 @@ function splitNameAndAddress(rawText){
 // ---- カメラでのスキャン ----
 let ocrStream = null;
 async function openOcrScan(){
-  document.getElementById('ocrScanOverlay').classList.add('open');
+  openSheetOverlay('ocrScanOverlay');
   document.getElementById('ocrScanStatus').textContent = '';
   try {
     ocrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -3339,7 +3362,7 @@ function openImageCropUI(sourceCanvas, mode, onCropped){
   img.src = sourceCanvas.toDataURL('image/jpeg', 0.92);
   document.getElementById('ocrCropRect').style.display = 'none';
   document.getElementById('ocrCropStatus').textContent = '';
-  document.getElementById('ocrCropOverlay').classList.add('open');
+  openSheetOverlay('ocrCropOverlay');
 }
 function closeOcrCrop(){
   document.getElementById('ocrCropOverlay').classList.remove('open');
@@ -3789,6 +3812,36 @@ async function movePointTo(id, latlng){
   pendingPointMoveTargetId = null;
   setMode('view');
   if (!p) return;
+
+  // 移動先が既存の別の地点（同じ種別）に近い場合、住所の表記ゆれなどで
+  // 自動判定では同じ建物とまとめられなかったケースを、ここで手動でも統合できるようにする。
+  // 「毎回でも良い」とのことなので、近くに何かあれば毎回必ず確認する。
+  const nearbyOther = points.find(pt =>
+    pt.id !== p.id && pt.type === p.type &&
+    distanceMeters(pt.lat, pt.lng, latlng.lat, latlng.lng) <= BUILDING_GROUP_RADIUS_M
+  );
+  if (nearbyOther) {
+    const label = nearbyOther.name || nearbyOther.nameKana || '（名前未登録）';
+    const merge = confirm(
+      `近くに「${label}」が登録されています。\n同じ建物として統合しますか？\n\n` +
+      `OK＝統合する（住所・位置を「${label}」に合わせ、詳細画面を左右スワイプで切り替えられるようにします）\n` +
+      `キャンセル＝統合せず、タップした位置にそのまま移動する`
+    );
+    if (merge) {
+      p.lat = nearbyOther.lat;
+      p.lng = nearbyOther.lng;
+      p.address = nearbyOther.address || p.address;
+      delete p.buildingGroupDetached; // 以前「切り離す」を選んでいても、統合し直す時はそれを解除する
+      p.updatedAt = Date.now();
+      p.buildingOutline = null;
+      p.buildingOutlineChecked = false;
+      await savePoints();
+      renderAllMarkers();
+      setTimeout(() => openDetailSheet(id), 150);
+      return;
+    }
+  }
+
   p.lat = latlng.lat;
   p.lng = latlng.lng;
   p.updatedAt = Date.now();
@@ -3905,6 +3958,17 @@ function renderDetailBuildingNav(p){
   };
   document.getElementById('detailBuildingNextBtn').onclick = () => {
     openDetailSheet(siblings[(idx + 1) % siblings.length].id);
+  };
+  document.getElementById('detailBuildingDetachBtn').onclick = () => {
+    // 誤って統合してしまった場合の取り消し用。住所・位置はそのまま残し、
+    // 「グループとして扱わない」印だけを付ける（元に戻したい時は、この部屋を
+    // もう一度動かして統合し直せば良い）。
+    if (!confirm(`「${p.name || p.nameKana || 'この部屋'}」を建物のグループから切り離しますか？\n住所・位置はそのまま残ります。`)) return;
+    p.buildingGroupDetached = true;
+    p.updatedAt = Date.now();
+    savePoints();
+    renderAllMarkers();
+    renderDetailBuildingNav(p); // 単独になった分、このナビ自体が消える
   };
   nav.style.display = 'flex';
 }
@@ -4147,7 +4211,7 @@ function openDetailSheet(id){
   document.getElementById('detailTime').textContent =
     '登録日時：' + new Date(p.createdAt).toLocaleString('ja-JP') + '（登録者：' + (p.createdBy || '不明') + '）';
 
-  document.getElementById('detailOverlay').classList.add('open');
+  openSheetOverlay('detailOverlay');
 }
 
 // ---------- コピー機能（貼り付けは誤操作防止のため用意しない。コピーのみ） ----------
@@ -4584,7 +4648,7 @@ function openDrawingEditSheet(id){
   applyToggleAppearance(document.getElementById('editArrowToggleBtn'), !!(d && d.arrow));
   document.getElementById('drawingCreatorInfo').textContent = d
     ? `登録者：${d.createdBy || '不明'}（${new Date(d.createdAt).toLocaleDateString('ja-JP')}）` : '';
-  document.getElementById('drawingEditOverlay').classList.add('open');
+  openSheetOverlay('drawingEditOverlay');
 }
 document.getElementById('editArrowToggleBtn').addEventListener('click', async () => {
   const d = drawings.find(x => x.id === selectedDrawingId);
@@ -4786,7 +4850,7 @@ function renderTrashList(){
 }
 document.getElementById('trashBtn').addEventListener('click', () => {
   renderTrashList();
-  document.getElementById('trashOverlay').classList.add('open');
+  openSheetOverlay('trashOverlay');
 });
 document.getElementById('closeTrashBtn').addEventListener('click', () => {
   document.getElementById('trashOverlay').classList.remove('open');
@@ -4834,7 +4898,7 @@ function renderDeleteAllLog(){
 document.getElementById('deleteAllBtn').addEventListener('click', () => {
   document.getElementById('deleteAllPasswordInput').value = '';
   document.getElementById('deleteAllErrorText').style.display = 'none';
-  document.getElementById('deleteAllOverlay').classList.add('open');
+  openSheetOverlay('deleteAllOverlay');
 });
 document.getElementById('deleteAllNoBtn').addEventListener('click', () => {
   document.getElementById('deleteAllOverlay').classList.remove('open');
@@ -4922,7 +4986,7 @@ document.getElementById('importFileInput').addEventListener('change', (e) => {
       (data.exportedBy ? `（${data.exportedBy}さんが書き出し）` : '') +
       `\n\n今の端末のデータ：地点${points.length}件／線${drawings.length}件／スタンプ${stamps.length}件` +
       `\n\n「追加する」は、同じ地点などがあれば更新日時が新しい方を残します（片方の削除も反映されます）。「置き換える」は今のデータを消してファイルの内容に差し替えます。`;
-    document.getElementById('importConfirmOverlay').classList.add('open');
+    openSheetOverlay('importConfirmOverlay');
   };
   reader.readAsText(file);
 });
@@ -5575,7 +5639,7 @@ function openSearchOverlay(){
   document.getElementById('geocodeResultRow').style.display = 'none';
   lastGeocodeResult = null;
   updateBatchBar(); // 前回選び途中の「便」があれば、そのまま引き継いで表示する
-  document.getElementById('searchOverlay').classList.add('open');
+  openSheetOverlay('searchOverlay');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
 }
 document.getElementById('searchBtn').addEventListener('click', openSearchOverlay);
@@ -5601,7 +5665,7 @@ function openStampEditSheet(id){
   document.getElementById('stampTimeStartInput').value = s.timeStart || '08:00';
   document.getElementById('stampTimeEndInput').value = s.timeEnd || '18:00';
 
-  document.getElementById('stampEditOverlay').classList.add('open');
+  openSheetOverlay('stampEditOverlay');
 }
 function rotateSelectedStamp(delta){
   const s = stamps.find(x => x.id === selectedStampId);
@@ -5812,7 +5876,7 @@ document.getElementById('showNameLabelsToggleBtn').addEventListener('click', () 
 
 document.getElementById('settingsBtn').addEventListener('click', () => {
   document.getElementById('settingUserNameInput').value = currentUserName;
-  document.getElementById('settingsOverlay').classList.add('open');
+  openSheetOverlay('settingsOverlay');
 });
 document.getElementById('closeSettingsBtn').addEventListener('click', () => {
   document.getElementById('settingsOverlay').classList.remove('open');
