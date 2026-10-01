@@ -207,11 +207,18 @@
   /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。名前ラベルと同じく常時表示。 */
   .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
     font-size:9px; font-weight:700; color:#fff; vertical-align:middle; }
-  /* 停車方向の矢印。ピンの真下に表示する。回転の基準点は
-     矢印自身の中心（left:50%+translateXで先に中央寄せしてから回転する）。 */
+  /* 停車方向の矢印。外側のwrapがアイコン中心からの位置（実際の方角の側）を決め、
+     内側のarrowだけを矢印の向きに回転させる（位置と回転を分けて、互いに干渉しないようにする）。 */
+  .parking-dir-arrow-wrap{
+    position:absolute; width:0; height:0; pointer-events:none;
+  }
   .parking-dir-arrow{
-    position:absolute; bottom:-18px; left:50%; font-size:14px; line-height:1; pointer-events:none;
-    filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));
+    position:absolute; top:0; left:0; transform-origin:center;
+    display:flex; align-items:center; justify-content:center;
+    width:26px; height:26px; margin:-13px 0 0 -13px;
+    font-size:26px; line-height:1; font-weight:900; color:#111827;
+    text-shadow:0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff;
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));
   }
   /* 地点登録画面：停車方向を選ぶ9個のボタン（8方位＋どちらでも） */
   .dir-btn{
@@ -698,19 +705,19 @@
 
     <div class="sheet-scroll-body">
       <label class="field-label">ふりがな（任意・すぐ打てる方をここに）</label>
-      <input type="text" id="nameKanaInput" placeholder="例）たなか"
+      <input type="text" id="nameKanaInput" name="deliveryMapNameKana_nofill" autocomplete="off" placeholder="例）たなか"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <label class="field-label">名前・呼び名（漢字・任意。あとで分かれば入力）</label>
-      <input type="text" id="nameInput" placeholder="例）田中様／○○マンション301"
+      <input type="text" id="nameInput" name="deliveryMapName_nofill" autocomplete="off" placeholder="例）田中様／○○マンション301"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <label class="field-label">住所（任意）</label>
-      <input type="text" id="addressInput" placeholder="例）東京都千代田区丸の内1-1-1"
+      <input type="text" id="addressInput" name="deliveryMapAddress_nofill" autocomplete="off" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
-      <input type="text" id="addressKanaInput" placeholder="例）うちさんげ"
+      <input type="text" id="addressKanaInput" name="deliveryMapAddressKana_nofill" autocomplete="off" placeholder="例）うちさんげ"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <div id="parkingCategoryWrap" style="display:none;">
@@ -779,8 +786,8 @@
 
       <div id="boxPasswordWrap">
         <label class="field-label">宅配BOXパスワード（任意）</label>
-        <input type="text" id="boxPasswordInput" placeholder="例）1234＃" inputmode="text"
-          autocapitalize="off" autocorrect="off" spellcheck="false"
+        <input type="text" id="boxPasswordInput" name="deliveryMapBoxPw_nofill" placeholder="例）1234＃" inputmode="text"
+          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
           style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
       </div>
 
@@ -788,7 +795,7 @@
       <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
 
       <label class="field-label">その他注意書き（任意・タグに無い内容のみ）</label>
-      <textarea id="memoInput" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
+      <textarea id="memoInput" name="deliveryMapMemo_nofill" autocomplete="off" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
 
       <div class="attn-row">
         <input type="checkbox" id="attnInput" />
@@ -939,7 +946,8 @@
     <div class="sheet-fixed-top">
       <div class="handle"></div>
       <h2>🔍 地点を検索</h2>
-      <input type="text" id="searchInput" placeholder="住所・メモ・パスワードなどで検索"
+      <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
       <div id="searchHistoryRow" style="display:none; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
     </div>
@@ -3068,7 +3076,9 @@ function addMarkerToMap(p){
   const originLabel = isRouteOrigin
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
 
-  // 停車方向の矢印（アイコン下に表示）。全体図・配達組どちらでも常に表示する。
+  // 停車方向の矢印。アイコンの中心から、実際の方角の側（北なら上、南なら下、東なら右…）に
+  // 配置することで、どの向きでも矢印が指す意味がアイコンに埋もれず分かるようにする。
+  // 全体図・配達組どちらでも常に表示する。
   // 地点登録画面で直接指定した方角(parkingDirValue)を最優先で使い、
   // 指定が無く、かつ停車位置を紐づけている（parkingPointId）場合だけ、
   // その紐づけ先の方角から自動計算する（以前からの機能との後方互換）。
@@ -3081,11 +3091,22 @@ function addMarkerToMap(p){
       if (parkingPt) dirVal = String(Math.round(bearingDegrees(p.lat, p.lng, parkingPt.lat, parkingPt.lng)));
     }
     if (dirVal !== null) {
+      const PARKING_DIR_RADIUS = 22; // アイコン中心から矢印までの距離(px)
       if (dirVal === 'either') {
-        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%);" title="停車方向（どちらでも可）">⇔</div>`;
+        // どちらでも良い場合は特定の向きが無いので、アイコンの真下に置く
+        parkingDirArrow = `
+          <div class="parking-dir-arrow-wrap" style="left:50%; top:50%; transform:translate(-50%,-50%) translate(0px, ${PARKING_DIR_RADIUS}px);">
+            <div class="parking-dir-arrow" title="停車方向（どちらでも可）">⇔</div>
+          </div>`;
       } else {
         const brng = Number(dirVal);
-        parkingDirArrow = `<div class="parking-dir-arrow" style="transform:translateX(-50%) rotate(${brng}deg);" title="停車方向">⬆️</div>`;
+        const rad = brng * Math.PI / 180;
+        const dx = Math.round(Math.sin(rad) * PARKING_DIR_RADIUS);
+        const dy = Math.round(-Math.cos(rad) * PARKING_DIR_RADIUS);
+        parkingDirArrow = `
+          <div class="parking-dir-arrow-wrap" style="left:50%; top:50%; transform:translate(-50%,-50%) translate(${dx}px, ${dy}px);">
+            <div class="parking-dir-arrow" style="transform:rotate(${brng}deg);" title="停車方向">⬆️</div>
+          </div>`;
       }
     }
   }
