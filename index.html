@@ -4138,18 +4138,37 @@ function startStopPositionEdit(id){
 
   map.setView([stopLatLng.lat, stopLatLng.lng], Math.max(map.getZoom(), 19));
 
+  // 編集中は凡例・GPS表示・ズームボタンなどを一時的に隠し、広域が見やすいようにする
+  // （既存の「メニューを一時的に隠す」仕組みをそのまま流用。元の状態は終了時に戻す）
+  const wasUiHidden = document.body.classList.contains('ui-hidden');
+  setUiHidden(true);
+
   const stopIcon = L.divIcon({
     className:'', html:'<div style="font-size:30px; line-height:1; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">🚗</div>',
     iconSize:[30,30], iconAnchor:[15,15]
   });
   const stopMarker = L.marker([stopLatLng.lat, stopLatLng.lng], { icon: stopIcon, draggable:true, zIndexOffset:3000 }).addTo(map);
 
-  const dirIconHtml = (deg) => `<div style="width:34px; height:34px; display:flex; align-items:center; justify-content:center;
-    font-size:28px; line-height:1; transform:rotate(${deg}deg); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">⬆️</div>`;
+  // 向きハンドル：矢印そのものを直接回すのではなく、中に「回転だけ担当する子要素」を
+  // 入れておき、ドラッグ中はその子要素のCSSだけを書き換える。
+  // （setIcon()でアイコン自体を毎回作り直すと、ドラッグ中のDOM要素が差し替わってしまい、
+  //   Leafletのドラッグ処理が古い（もう無い）要素を追いかけ続けて動かなくなるため、
+  //   「矢印がドラッグで回らない」原因になっていた。これを避けるための対策。）
   let lastDirDeg = dirDeg;
   const dirStart = destinationPoint(stopLatLng.lat, stopLatLng.lng, dirDeg, STOP_EDIT_DIR_RADIUS_M);
-  const dirIcon = L.divIcon({ className:'', html: dirIconHtml(dirDeg), iconSize:[34,34], iconAnchor:[17,17] });
+  const dirIcon = L.divIcon({
+    className:'',
+    html: `<div style="width:34px; height:34px; display:flex; align-items:center; justify-content:center;">
+      <div class="stop-edit-dir-rotor" style="font-size:28px; line-height:1; transform:rotate(${dirDeg}deg); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">⬆️</div>
+    </div>`,
+    iconSize:[34,34], iconAnchor:[17,17]
+  });
   const dirMarker = L.marker([dirStart.lat, dirStart.lng], { icon: dirIcon, draggable:true, zIndexOffset:3001 }).addTo(map);
+  const setDirRotorDeg = (deg) => {
+    const el = dirMarker.getElement();
+    const rotor = el && el.querySelector('.stop-edit-dir-rotor');
+    if (rotor) rotor.style.transform = `rotate(${deg}deg)`;
+  };
 
   const lineLayer = L.polyline([[stopLatLng.lat, stopLatLng.lng], [dirStart.lat, dirStart.lng]],
     { color:'#2563eb', weight:3, dashArray:'4,5' }).addTo(map);
@@ -4171,11 +4190,11 @@ function startStopPositionEdit(id){
     lastDirDeg = deg;
     const snapped = destinationPoint(stopLL.lat, stopLL.lng, deg, STOP_EDIT_DIR_RADIUS_M);
     dirMarker.setLatLng(snapped);
-    dirMarker.setIcon(L.divIcon({ className:'', html: dirIconHtml(deg), iconSize:[34,34], iconAnchor:[17,17] }));
+    setDirRotorDeg(deg);
     refreshLine();
   });
 
-  stopEditState = { pointId: id, stopMarker, dirMarker, lineLayer };
+  stopEditState = { pointId: id, stopMarker, dirMarker, lineLayer, wasUiHidden };
   document.getElementById('stopEditShareCheck').checked = !!p.parkingPointId;
   document.getElementById('stopEditBar').style.display = 'block';
 }
@@ -4185,6 +4204,7 @@ function cleanupStopPositionEdit(){
   map.removeLayer(stopEditState.stopMarker);
   map.removeLayer(stopEditState.dirMarker);
   map.removeLayer(stopEditState.lineLayer);
+  setUiHidden(stopEditState.wasUiHidden); // 編集前に隠していたかどうかの状態に戻す
   stopEditState = null;
   document.getElementById('stopEditBar').style.display = 'none';
 }
