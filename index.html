@@ -500,6 +500,21 @@
   </div>
   <div id="map"></div>
 
+  <!-- 停車位置・向きを地図でドラッグして決める時に出す操作バー -->
+  <div id="stopEditBar" style="display:none; position:fixed; left:12px; right:12px; bottom:16px; z-index:2500;
+    background:var(--paper); color:var(--ink); border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.3); padding:14px;">
+    <div style="font-size:13px; color:var(--sub); margin-bottom:10px; line-height:1.5;">
+      🚗 青いマーカーをドラッグして停車位置へ、矢印のつまみをドラッグして向きを合わせてください
+    </div>
+    <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:10px; cursor:pointer;">
+      <input type="checkbox" id="stopEditShareCheck" /> この停車位置を他の配達先とも共有する（🅿️停車位置として登録）
+    </label>
+    <div class="btn-row" style="margin-top:0;">
+      <button type="button" class="btn btn-secondary" id="stopEditCancelBtn">キャンセル</button>
+      <button type="button" class="btn btn-primary" id="stopEditConfirmBtn">✓ この内容で決定</button>
+    </div>
+  </div>
+
   <!-- お名前入力（初回は必須。閉じるボタンなし＝入力するまで先に進めない） -->
   <div class="sheet-overlay" id="userNameOverlay" style="z-index:1000;">
     <div class="sheet">
@@ -910,6 +925,10 @@
 
     <button class="btn btn-secondary" id="addParkingLinkBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
       🅿️ 停車位置を新しく登録してここに紐づける
+    </button>
+
+    <button class="btn btn-secondary" id="editStopPositionBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
+      🚗 停車位置と向きを地図で指定
     </button>
 
     <!-- 「次の配達」の自動スキップ機能がこのボタンで完了を記録する仕組みのため、表示するようにした。 -->
@@ -4072,6 +4091,155 @@ function compassDirection(lat1, lng1, lat2, lng2){
   const dirs = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
   return dirs[Math.round(brng / 45) % 8];
 }
+// 起点(lat,lng)から、ある方角(bearingDeg)へ、ある距離(distanceM)だけ進んだ地点を求める
+// （停車位置・向きのドラッグ編集で、向きハンドルを停車位置の周りの円周上に置くために使う）
+function destinationPoint(lat, lng, bearingDeg, distanceM){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const toDeg = r => r * 180 / Math.PI;
+  const brng = toRad(bearingDeg);
+  const lat1 = toRad(lat), lng1 = toRad(lng);
+  const dOverR = distanceM / R;
+  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dOverR) + Math.cos(lat1) * Math.sin(dOverR) * Math.cos(brng));
+  const lng2 = lng1 + Math.atan2(
+    Math.sin(brng) * Math.sin(dOverR) * Math.cos(lat1),
+    Math.cos(dOverR) - Math.sin(lat1) * Math.sin(lat2)
+  );
+  return { lat: toDeg(lat2), lng: toDeg(lng2) };
+}
+
+// ---------- 停車位置・向きのドラッグ編集 ----------
+// 共有の停車位置をわざわざ別登録するほどではない、1件の配達先専用の「停車位置＋向き」を
+// 地図上のドラッグだけで直感的に指定・修整できるようにする機能。
+// 普段の地図表示は今まで通り、配達先アイコンのそばの矢印だけ（p.parkingDirValueを使う）。
+// ここで動かす2つのつまみ（🚗停車位置／⬆️向き）は、編集中だけ地図に出して、
+// 決定したら消える（stopLat/stopLngは次に編集する時のために覚えておくだけ）。
+const STOP_EDIT_DIR_RADIUS_M = 12; // 停車位置から向きハンドルまでの距離
+let stopEditState = null; // { pointId, stopMarker, dirMarker, lineLayer }
+
+function startStopPositionEdit(id){
+  const p = points.find(pt => pt.id === id);
+  if (!p) return;
+  document.getElementById('detailOverlay').classList.remove('open');
+
+  // 初期の停車位置：前回指定した場所があればそこ、無ければ配達先のすぐ北側
+  const stopLatLng = (typeof p.stopLat === 'number' && typeof p.stopLng === 'number')
+    ? { lat: p.stopLat, lng: p.stopLng }
+    : destinationPoint(p.lat, p.lng, 0, 10);
+
+  // 初期の向き：既に数値で指定済みならそれ、無ければ「停車位置→配達先」の方角
+  let dirDeg;
+  if (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '' && p.parkingDirValue !== 'either') {
+    const n = Number(p.parkingDirValue);
+    dirDeg = Number.isNaN(n) ? bearingDegrees(stopLatLng.lat, stopLatLng.lng, p.lat, p.lng) : n;
+  } else {
+    dirDeg = bearingDegrees(stopLatLng.lat, stopLatLng.lng, p.lat, p.lng);
+  }
+
+  map.setView([stopLatLng.lat, stopLatLng.lng], Math.max(map.getZoom(), 19));
+
+  const stopIcon = L.divIcon({
+    className:'', html:'<div style="font-size:30px; line-height:1; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">🚗</div>',
+    iconSize:[30,30], iconAnchor:[15,15]
+  });
+  const stopMarker = L.marker([stopLatLng.lat, stopLatLng.lng], { icon: stopIcon, draggable:true, zIndexOffset:3000 }).addTo(map);
+
+  const dirIconHtml = (deg) => `<div style="width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+    font-size:28px; line-height:1; transform:rotate(${deg}deg); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">⬆️</div>`;
+  let lastDirDeg = dirDeg;
+  const dirStart = destinationPoint(stopLatLng.lat, stopLatLng.lng, dirDeg, STOP_EDIT_DIR_RADIUS_M);
+  const dirIcon = L.divIcon({ className:'', html: dirIconHtml(dirDeg), iconSize:[34,34], iconAnchor:[17,17] });
+  const dirMarker = L.marker([dirStart.lat, dirStart.lng], { icon: dirIcon, draggable:true, zIndexOffset:3001 }).addTo(map);
+
+  const lineLayer = L.polyline([[stopLatLng.lat, stopLatLng.lng], [dirStart.lat, dirStart.lng]],
+    { color:'#2563eb', weight:3, dashArray:'4,5' }).addTo(map);
+  const refreshLine = () => lineLayer.setLatLngs([stopMarker.getLatLng(), dirMarker.getLatLng()]);
+
+  // 停車位置を動かしても、向きハンドルとの位置関係（角度・距離）は維持したまま一緒に動かす
+  stopMarker.on('drag', () => {
+    const stopLL = stopMarker.getLatLng();
+    const newDirPos = destinationPoint(stopLL.lat, stopLL.lng, lastDirDeg, STOP_EDIT_DIR_RADIUS_M);
+    dirMarker.setLatLng(newDirPos);
+    refreshLine();
+  });
+
+  // 向きハンドルは停車位置を中心にした円周上だけを動く＝距離は一定、角度だけが変わる
+  dirMarker.on('drag', () => {
+    const stopLL = stopMarker.getLatLng();
+    const dirLL = dirMarker.getLatLng();
+    const deg = bearingDegrees(stopLL.lat, stopLL.lng, dirLL.lat, dirLL.lng);
+    lastDirDeg = deg;
+    const snapped = destinationPoint(stopLL.lat, stopLL.lng, deg, STOP_EDIT_DIR_RADIUS_M);
+    dirMarker.setLatLng(snapped);
+    dirMarker.setIcon(L.divIcon({ className:'', html: dirIconHtml(deg), iconSize:[34,34], iconAnchor:[17,17] }));
+    refreshLine();
+  });
+
+  stopEditState = { pointId: id, stopMarker, dirMarker, lineLayer };
+  document.getElementById('stopEditShareCheck').checked = !!p.parkingPointId;
+  document.getElementById('stopEditBar').style.display = 'block';
+}
+
+function cleanupStopPositionEdit(){
+  if (!stopEditState) return;
+  map.removeLayer(stopEditState.stopMarker);
+  map.removeLayer(stopEditState.dirMarker);
+  map.removeLayer(stopEditState.lineLayer);
+  stopEditState = null;
+  document.getElementById('stopEditBar').style.display = 'none';
+}
+
+document.getElementById('stopEditCancelBtn').addEventListener('click', () => {
+  const id = stopEditState ? stopEditState.pointId : null;
+  cleanupStopPositionEdit();
+  if (id) openDetailSheet(id);
+});
+
+document.getElementById('stopEditConfirmBtn').addEventListener('click', async () => {
+  if (!stopEditState) return;
+  const { pointId, stopMarker, dirMarker } = stopEditState;
+  const p = points.find(pt => pt.id === pointId);
+  if (!p) { cleanupStopPositionEdit(); return; }
+
+  const stopLL = stopMarker.getLatLng();
+  const dirLL = dirMarker.getLatLng();
+  const deg = Math.round(bearingDegrees(stopLL.lat, stopLL.lng, dirLL.lat, dirLL.lng));
+  const share = document.getElementById('stopEditShareCheck').checked;
+
+  p.parkingDirValue = String(deg);
+  p.parkHere = false; // この流れを使った時点で「配達先と同じ場所」ではなくなる
+
+  if (share) {
+    // 他の配達先とも共有する：正式な🅿️停車位置として登録し、そこへ紐づける
+    let parkingPt = p.parkingPointId ? points.find(pt => pt.id === p.parkingPointId) : null;
+    if (!parkingPt) {
+      parkingPt = {
+        id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+        lat: stopLL.lat, lng: stopLL.lng, type: 'parking', status: 'pending',
+        name: '', nameKana: '', address: '', addressKana: '', memo: '',
+        tags: [], boxPassword: '', photos: [],
+        parkingCategory: 'general', isBase: false,
+        createdAt: Date.now(), updatedAt: Date.now(), createdBy: currentUserName
+      };
+      points.push(parkingPt);
+      actionHistory.push({ type:'point', id:parkingPt.id });
+    } else {
+      parkingPt.lat = stopLL.lat; parkingPt.lng = stopLL.lng; parkingPt.updatedAt = Date.now();
+    }
+    p.parkingPointId = parkingPt.id;
+    p.stopLat = null; p.stopLng = null; // 共有地点として独立したので、専用の座標は不要
+  } else {
+    p.parkingPointId = null;
+    p.stopLat = stopLL.lat;
+    p.stopLng = stopLL.lng;
+  }
+
+  p.updatedAt = Date.now();
+  cleanupStopPositionEdit();
+  await savePoints();
+  renderAllMarkers();
+  openDetailSheet(pointId);
+});
 
 // ---------- 詳細シート ----------
 function updateStatusButtonsUI(status){
@@ -4360,6 +4528,12 @@ function openDetailSheet(id){
     addParkingBtn.style.display = 'block';
     routeOptionsRow.style.display = 'none';
   }
+
+  // 「停車位置と向きを地図で指定」：共有の停車位置を別途登録するほどではない、
+  // 1件だけのための軽い停車位置・向きの指定。配達先なら常に使えるようにする。
+  const editStopBtn = document.getElementById('editStopPositionBtn');
+  editStopBtn.style.display = (p.type === 'delivery') ? 'block' : 'none';
+  editStopBtn.onclick = () => startStopPositionEdit(p.id);
 
   const photosEl = document.getElementById('detailPhotos');
   photosEl.innerHTML = '';
