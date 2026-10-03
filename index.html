@@ -1320,6 +1320,50 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
+// ---------- IndexedDB（写真を含む大きなデータを安全に保存するため） ----------
+// localStorageは端末によっては5〜10MB程度しか使えず、写真を含む地点データ・ゴミ箱データが
+// 増えると「容量オーバー」で保存に失敗することがあった。しかも保存に失敗しても画面上は
+// そのまま操作を続けられてしまうため、次にアプリを開いたときに保存できていなかった分だけ
+// 地点が消えたように見える、という不具合につながっていた。
+// IndexedDBはlocalStorageよりずっと大きな容量を扱えるため、写真を含みうる「地点」と「ゴミ箱」の
+// 保存先はこちらに変更する（他の小さなデータは従来通りlocalStorageのままでよい）。
+const IDB_NAME = 'delivery-map-db-v1';
+const IDB_STORE = 'kv';
+let idbPromise = null;
+function openIdb(){
+  if (idbPromise) return idbPromise;
+  idbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error('IndexedDB未対応')); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return idbPromise;
+}
+async function idbGet(key){
+  const db = await openIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value){
+  const db = await openIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const STORAGE_KEY = 'delivery-points-v1';
 const USER_NAME_KEY = 'delivery-user-name-v1';
 let currentUserName = '';
@@ -1368,10 +1412,26 @@ let trash = [];
 
 async function loadTrash(){
   try {
-    const raw = localStorage.getItem(TRASH_KEY);
-    trash = raw ? JSON.parse(raw) : [];
+    const stored = await idbGet('trash');
+    if (stored !== undefined) {
+      trash = stored || [];
+    } else {
+      // 旧バージョン（localStorageに保存していた形式）からの移行
+      let legacy = [];
+      try {
+        const raw = localStorage.getItem(TRASH_KEY);
+        legacy = raw ? JSON.parse(raw) : [];
+      } catch (e) { legacy = []; }
+      trash = legacy;
+      await idbSet('trash', trash);
+      try { localStorage.removeItem(TRASH_KEY); } catch (e) {} // 容量を空けるため、古い保存分は消す
+    }
   } catch (e) {
-    trash = [];
+    console.error('ゴミ箱データの読み込みに失敗', e);
+    try {
+      const raw = localStorage.getItem(TRASH_KEY);
+      trash = raw ? JSON.parse(raw) : [];
+    } catch (e2) { trash = []; }
   }
   const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   const before = trash.length;
@@ -1380,8 +1440,11 @@ async function loadTrash(){
 }
 async function saveTrash(){
   try {
-    localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
-  } catch (e) { console.error('ゴミ箱の保存に失敗', e); }
+    await idbSet('trash', trash);
+  } catch (e) {
+    console.error('ゴミ箱の保存に失敗', e);
+    try { localStorage.setItem(TRASH_KEY, JSON.stringify(trash)); } catch (e2) {}
+  }
 }
 async function moveToTrash(itemType, data){
   trash.unshift({ id: 'trash_' + Date.now() + '_' + Math.random().toString(36).slice(2,7), itemType, data, deletedAt: Date.now(), deletedBy: currentUserName });
@@ -2904,10 +2967,29 @@ function startWatchingMyLocation(){
 // スマホの普通のブラウザ（Chromeなど）でそのまま使える、標準の保存機能(localStorage)を使う
 async function loadPoints(){
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    points = raw ? JSON.parse(raw) : [];
+    const stored = await idbGet('points');
+    if (stored !== undefined) {
+      points = stored || [];
+    } else {
+      // 旧バージョン（localStorageに保存していた形式）からの移行
+      let legacy = [];
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        legacy = raw ? JSON.parse(raw) : [];
+      } catch (e) { legacy = []; }
+      points = legacy;
+      await idbSet('points', points);
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {} // 容量を空けるため、古い保存分は消す
+    }
   } catch (e) {
-    points = []; // 保存データがまだ無い場合や壊れている場合は空にする
+    console.error('地点データの読み込みに失敗', e);
+    // IndexedDBが使えない端末などの最終手段として、従来のlocalStorageから読む
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      points = raw ? JSON.parse(raw) : [];
+    } catch (e2) {
+      points = []; // 保存データがまだ無い場合や壊れている場合は空にする
+    }
   }
   // 以前のバージョン（写真を1枚だけ持つ形式）のデータを、複数枚対応の形式に変換する
   points.forEach(p => {
@@ -2954,10 +3036,15 @@ setInterval(() => { resetDailyStatusIfNeeded(); }, 5 * 60 * 1000);
 
 async function savePoints(){
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+    await idbSet('points', points);
   } catch (e) {
     console.error('保存に失敗しました', e);
-    alert('地点の保存に失敗しました。写真が大きすぎる可能性があります。');
+    // IndexedDBも失敗する場合の最終手段としてlocalStorageに試みる（写真が多いと入らない可能性あり）
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+    } catch (e2) {
+      alert('地点の保存に失敗しました。端末の空き容量を確認してください。');
+    }
   }
   updateCount();
 }
