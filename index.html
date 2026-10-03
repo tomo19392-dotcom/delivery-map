@@ -1161,6 +1161,11 @@
       <button class="btn btn-secondary" id="saveSettingUserNameBtn" style="padding:9px 12px; font-size:13px;">保存</button>
     </div>
 
+    <label class="field-label">保存容量の使用状況</label>
+    <p id="storageUsageText" style="font-size:12px; color:var(--sub); margin-top:-4px; margin-bottom:12px; line-height:1.6;">
+      読み込み中…
+    </p>
+
     <label class="field-label">データのバックアップ</label>
     <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
       機種変更やアプリの削除に備えて、地点・線・スタンプのデータをファイルに書き出せます。
@@ -1779,6 +1784,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadTrash();
   await loadDeleteAllLog();
   renderDeleteAllLog();
+  checkStorageWarningOnLaunch(); // 容量がひっ迫していたら控えめに知らせる（裏で確認するだけなので描画は待たない）
   renderAllMarkers();
   renderAllDrawings();
   renderAllStamps();
@@ -6596,8 +6602,56 @@ document.getElementById('showParkingArrowToggleBtn').addEventListener('click', (
   saveDrawSettings();
 });
 
+// ---------- 保存容量（ストレージ使用量）の確認 ----------
+// ブラウザの標準機能で「今どれくらい使っているか／端末的にどれくらいまで使えそうか」の目安を取得できる。
+// 正確な上限ではなく「目安」だが、容量を気にしているユーザーに大まかな感覚を持ってもらうには十分。
+function formatBytes(n){
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+async function getStorageEstimate(){
+  if (!navigator.storage || !navigator.storage.estimate) return null;
+  try {
+    const { usage, quota } = await navigator.storage.estimate();
+    if (typeof usage !== 'number' || typeof quota !== 'number' || quota === 0) return null;
+    return { usage, quota };
+  } catch (e) {
+    return null;
+  }
+}
+async function updateStorageUsageDisplay(){
+  const el = document.getElementById('storageUsageText');
+  if (!el) return;
+  const est = await getStorageEstimate();
+  if (!est) {
+    el.textContent = 'この端末・ブラウザでは使用量を取得できませんでした。';
+    return;
+  }
+  const pct = Math.round((est.usage / est.quota) * 1000) / 10;
+  el.textContent = `このアプリが使用中：約${formatBytes(est.usage)}／端末が割り当てている上限の目安：約${formatBytes(est.quota)}（${pct}%）`;
+}
+// 容量がひっ迫してきたら、設定を開かなくても気づけるよう、起動時に控えめに知らせる（1日1回まで）。
+const STORAGE_WARN_SHOWN_KEY = 'delivery-storage-warn-shown-date-v1';
+async function checkStorageWarningOnLaunch(){
+  const est = await getStorageEstimate();
+  if (!est) return;
+  const pct = est.usage / est.quota;
+  if (pct < 0.8) return; // 80%未満なら何もしない
+  const today = new Date().toISOString().slice(0, 10);
+  let lastShown = null;
+  try { lastShown = localStorage.getItem(STORAGE_WARN_SHOWN_KEY); } catch (e) {}
+  if (lastShown === today) return; // 今日すでに表示していれば繰り返さない
+  try { localStorage.setItem(STORAGE_WARN_SHOWN_KEY, today); } catch (e) {}
+  alert(
+    `端末の保存容量が残り少なくなってきています（使用量の目安：約${Math.round(pct * 100)}%）。\n\n` +
+    `このまま写真つきの登録を続けると保存できなくなる可能性があります。設定の「データのバックアップ」から書き出して保存した上で、使わなくなった写真や地点を減らすことをおすすめします。`
+  );
+}
+
 document.getElementById('settingsBtn').addEventListener('click', () => {
   document.getElementById('settingUserNameInput').value = currentUserName;
+  updateStorageUsageDisplay();
   openSheetOverlay('settingsOverlay');
 });
 document.getElementById('closeSettingsBtn').addEventListener('click', () => {
