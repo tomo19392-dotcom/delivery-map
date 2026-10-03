@@ -4120,14 +4120,47 @@ function showParkingRelationOnMap(parkingPoint, deliveryPoint){
   clearRouteHighlight();
 
   parkingRelationLayer = L.layerGroup().addTo(map);
+
+  // 配達先との位置関係が分かるよう、停車位置から配達先まで薄い線を引く
   L.polyline(
     [[parkingPoint.lat, parkingPoint.lng], [deliveryPoint.lat, deliveryPoint.lng]],
-    { color:parkingColor(), weight:3, opacity:0.8, dashArray:'6,6' }
+    { color:parkingColor(), weight:2, opacity:0.6, dashArray:'6,6' }
   ).addTo(parkingRelationLayer);
-  // 停車位置側だけ目立つ輪を付けて、どちらがどちらか分かりやすくする（配達先は元のピンで既に分かるため）
-  L.circleMarker([parkingPoint.lat, parkingPoint.lng], {
-    radius:14, color:parkingColor(), weight:3, fill:false
-  }).addTo(parkingRelationLayer);
+
+  // 丸印ではなく、登録・編集時と同じ「車」のアイコンでそのまま表示する
+  const carIcon = L.divIcon({
+    className:'', html:'<div style="font-size:30px; line-height:1; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">🚗</div>',
+    iconSize:[30,30], iconAnchor:[15,15]
+  });
+  L.marker([parkingPoint.lat, parkingPoint.lng], { icon:carIcon, interactive:false, zIndexOffset:3000 }).addTo(parkingRelationLayer);
+
+  // 停車の向きも、編集時と同じ矢印（または「どちらでも可」の⇔）のアイコンで表示する
+  let dirVal = (deliveryPoint.parkingDirValue !== undefined && deliveryPoint.parkingDirValue !== null && deliveryPoint.parkingDirValue !== '')
+    ? String(deliveryPoint.parkingDirValue) : null;
+  if (dirVal === null) {
+    dirVal = String(Math.round(bearingDegrees(parkingPoint.lat, parkingPoint.lng, deliveryPoint.lat, deliveryPoint.lng)));
+  }
+  if (dirVal === 'either') {
+    const eitherIcon = L.divIcon({
+      className:'',
+      html:'<div style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:26px; line-height:1; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));" title="停車方向（どちらでも可）">⇔</div>',
+      iconSize:[34,34], iconAnchor:[17,17]
+    });
+    L.marker([parkingPoint.lat, parkingPoint.lng], { icon:eitherIcon, interactive:false, zIndexOffset:3001 }).addTo(parkingRelationLayer);
+  } else {
+    const brng = Number(dirVal);
+    const dirPos = destinationPoint(parkingPoint.lat, parkingPoint.lng, brng, STOP_EDIT_DIR_RADIUS_M);
+    const dirIcon = L.divIcon({
+      className:'',
+      html:`<div style="width:34px; height:34px; display:flex; align-items:center; justify-content:center;">
+        <div style="font-size:28px; line-height:1; transform:rotate(${brng}deg); filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));">⬆️</div>
+      </div>`,
+      iconSize:[34,34], iconAnchor:[17,17]
+    });
+    L.marker([dirPos.lat, dirPos.lng], { icon:dirIcon, interactive:false, zIndexOffset:3001 }).addTo(parkingRelationLayer);
+    L.polyline([[parkingPoint.lat, parkingPoint.lng], [dirPos.lat, dirPos.lng]],
+      { color:'#2563eb', weight:3, dashArray:'4,5' }).addTo(parkingRelationLayer);
+  }
 
   const bounds = L.latLngBounds(
     [parkingPoint.lat, parkingPoint.lng],
