@@ -19,33 +19,44 @@
     --header-h:56px; /* 実際の高さはJSでheader要素から測って上書きする（機種による差を自動で吸収） */
   }
 
-  /* ---------- ダークモード ---------- */
-  html[data-theme="dark"]{
+  /* ---------- ダークモード／黒金モード共通の下地 ---------- */
+  /* 画面の暗さ・文字色などの基本はダークモードと黒金モードで共通にし、
+     「配達先＝オレンジ→ゴールド」「停車位置＝ブルー→シルバー」の部分だけ
+     黒金モード側で個別に差し替える */
+  html[data-theme="dark"],
+  html[data-theme="gold"]{
     --ink:#e5e7eb;
     --paper:#1f2937;
     --bg:#0f172a;
     --sub:#9ca3af;
     --line:#374151;
   }
+  html[data-theme="gold"]{
+    --orange:#D4AF37; /* 配達先＝ゴールド */
+    --blue:#B8B8C0;   /* 停車位置＝シルバー */
+  }
   /* CSS変数化されていない、個別にハードコードされた白背景の要素はここで上書きする */
-  html[data-theme="dark"] #legend{ background:rgba(31,41,55,.92); }
-  html[data-theme="dark"] .btn-group-panel{ background:rgba(31,41,55,.95); }
-  html[data-theme="dark"] #undoBtn,
-  html[data-theme="dark"] #settingsBtn,
-  html[data-theme="dark"] #trashBtn,
-  html[data-theme="dark"] #searchBtn{ background:rgba(31,41,55,.95) !important; color:var(--ink) !important; }
-  html[data-theme="dark"] .corner-picker{ background:#111827; }
-  html[data-theme="dark"] .style-btn.selected{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] #legend, html[data-theme="gold"] #legend{ background:rgba(31,41,55,.92); }
+  html[data-theme="dark"] .btn-group-panel, html[data-theme="gold"] .btn-group-panel{ background:rgba(31,41,55,.95); }
+  html[data-theme="dark"] #undoBtn, html[data-theme="gold"] #undoBtn,
+  html[data-theme="dark"] #settingsBtn, html[data-theme="gold"] #settingsBtn,
+  html[data-theme="dark"] #trashBtn, html[data-theme="gold"] #trashBtn,
+  html[data-theme="dark"] #searchBtn, html[data-theme="gold"] #searchBtn{ background:rgba(31,41,55,.95) !important; color:var(--ink) !important; }
+  html[data-theme="dark"] .corner-picker, html[data-theme="gold"] .corner-picker{ background:#111827; }
+  html[data-theme="dark"] .style-btn.selected, html[data-theme="gold"] .style-btn.selected{ background:#374151; color:var(--ink); }
   html[data-theme="dark"] .btn-primary{ background:#4b5563; color:#fff; }
-  html[data-theme="dark"] .btn-secondary{ background:#374151; color:var(--ink); border:1px solid #4b5563; }
-  html[data-theme="dark"] .btn-danger{ background:#450a0a; color:#fca5a5; }
-  html[data-theme="dark"] .copy-btn{ background:#374151; color:var(--ink); }
-  html[data-theme="dark"] .copy-btn.copied{ background:#064e3b; color:#6ee7b7; }
-  html[data-theme="dark"] .toggle-btn{ background:#111827; border-color:#374151; color:var(--ink); }
-  html[data-theme="dark"] .weight-swatch, html[data-theme="dark"] .color-swatch{ border-color:#374151; }
-  html[data-theme="dark"] .toggle-btn.on{ background:#064e3b; border-color:#10b981; color:#6ee7b7; }
-  html[data-theme="dark"] #drawBar, html[data-theme="dark"] #stampBar{ background:rgba(31,41,55,.97) !important; }
-  html[data-theme="dark"] #drawHintRow{ color:var(--sub); }
+  html[data-theme="gold"] .btn-primary{ background:var(--orange); color:#1a1405; } /* 主要ボタンはゴールドで目立たせる */
+  html[data-theme="dark"] .btn-secondary, html[data-theme="gold"] .btn-secondary{ background:#374151; color:var(--ink); border:1px solid #4b5563; }
+  html[data-theme="dark"] .btn-danger, html[data-theme="gold"] .btn-danger{ background:#450a0a; color:#fca5a5; }
+  html[data-theme="dark"] .copy-btn, html[data-theme="gold"] .copy-btn{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .copy-btn.copied, html[data-theme="gold"] .copy-btn.copied{ background:#064e3b; color:#6ee7b7; }
+  html[data-theme="dark"] .toggle-btn, html[data-theme="gold"] .toggle-btn{ background:#111827; border-color:#374151; color:var(--ink); }
+  html[data-theme="dark"] .weight-swatch, html[data-theme="gold"] .weight-swatch,
+  html[data-theme="dark"] .color-swatch, html[data-theme="gold"] .color-swatch{ border-color:#374151; }
+  html[data-theme="dark"] .toggle-btn.on, html[data-theme="gold"] .toggle-btn.on{ background:#064e3b; border-color:#10b981; color:#6ee7b7; }
+  html[data-theme="dark"] #drawBar, html[data-theme="gold"] #drawBar,
+  html[data-theme="dark"] #stampBar, html[data-theme="gold"] #stampBar{ background:rgba(31,41,55,.97) !important; }
+  html[data-theme="dark"] #drawHintRow, html[data-theme="gold"] #drawHintRow{ color:var(--sub); }
 
   /* 描画中、メニュー類が邪魔になる場所を描けるよう、一時的にすべて隠せるようにする */
   body.ui-hidden .corner-stack,
@@ -54,8 +65,20 @@
   body.ui-hidden #hint{ display:none !important; }
   html[data-theme="dark"] #newOverlay .sheet.type-delivery{ background:#4a2c17; }
   html[data-theme="dark"] #newOverlay .sheet.type-parking{ background:#1e3a5f; }
+  html[data-theme="gold"] #newOverlay .sheet.type-delivery{ background:#3a2f0a; }
+  html[data-theme="gold"] #newOverlay .sheet.type-parking{ background:#2a2a2e; }
   /* 地図タイル自体を少し暗めに寄せる（白飛びを抑え、夜間の目の負担を減らす） */
-  html[data-theme="dark"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
+  html[data-theme="dark"] .leaflet-tile-pane, html[data-theme="gold"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
+  /* ここから下は、固定の薄い色背景のままだとダークモードで白っぽく浮いて見えたり、
+     文字色（var(--ink)など）だけがテーマに合わせて変わって背景と同化してしまったりする
+     箇所の個別対応。見た目の統一感のためと、念のための可読性確保のため。 */
+  html[data-theme="dark"] .type-btn, html[data-theme="gold"] .type-btn{ background:#111827; }
+  html[data-theme="dark"] .stamp-pick, html[data-theme="gold"] .stamp-pick{ background:#111827; }
+  html[data-theme="dark"] .detail-type.delivery{ background:#4a2c17; }
+  html[data-theme="dark"] .detail-type.parking{ background:#1e3a5f; }
+  html[data-theme="gold"] .detail-type.delivery{ background:#3a2f0a; }
+  html[data-theme="gold"] .detail-type.parking{ background:#2a2a2e; }
+  html[data-theme="dark"] .detail-warn, html[data-theme="gold"] .detail-warn{ background:#450a0a; color:#fca5a5; }
 
   /* ---------- 文字を大きくする（メモ・パスワードなどが見えにくい人向け） ---------- */
   html[data-text-size="large"] #detailMemo,
@@ -301,7 +324,7 @@
     background:#f3f4f6; color:var(--sub); font-size:14px; line-height:1;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
-  html[data-theme="dark"] .sheet-close-x{ background:#374151; color:var(--ink); }
+  html[data-theme="dark"] .sheet-close-x, html[data-theme="gold"] .sheet-close-x{ background:#374151; color:var(--ink); }
 
   /* 配達先/停車位置どちらの入力画面かを、スクロールしても見失わないよう
      フォーム全体の背景色で常時わかるようにする（文字を読まなくても一目で判断できる） */
@@ -333,6 +356,15 @@
   }
   .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:#fff; box-shadow:0 2px 8px rgba(232,134,46,.35); }
   .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(79,160,214,.35); }
+
+  /* 配色テーマ（通常／ダーク／黒金）の切り替えボタン */
+  .theme-btn{
+    flex:1; padding:10px 6px; border-radius:10px; border:2px solid var(--line);
+    background:var(--bg); font-size:12px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
+  }
+  .theme-btn-icon{ display:block; font-size:18px; margin-bottom:2px; }
+  .theme-btn.selected{ border-color:var(--blue); background:var(--blue); color:#fff; }
+  .theme-btn[data-theme-choice="gold"].selected{ border-color:#D4AF37; background:#D4AF37; color:#1a1405; }
 
   /* コンビニなどの目印：チェーンごとの色を左右で分けた丸いアイコンにする */
   .landmark-badge{
@@ -1185,9 +1217,21 @@
     </div>
     <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
 
+    <label class="field-label">配色テーマ</label>
+    <div class="theme-picker" style="display:flex; gap:8px; margin-bottom:14px;">
+      <button type="button" class="theme-btn" data-theme-choice="light">
+        <span class="theme-btn-icon">☀️</span>通常
+      </button>
+      <button type="button" class="theme-btn" data-theme-choice="dark">
+        <span class="theme-btn-icon">🌙</span>ダーク
+      </button>
+      <button type="button" class="theme-btn" data-theme-choice="gold">
+        <span class="theme-btn-icon">✨</span>黒金
+      </button>
+    </div>
+
     <label class="field-label">画面の見た目</label>
     <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
-      <button class="toggle-btn" id="darkModeToggleBtn"><span class="box">⬜</span> ダークモード</button>
       <button class="toggle-btn" id="largeTextToggleBtn"><span class="box">⬜</span> 文字を大きくする</button>
       <button class="toggle-btn" id="showNameLabelsToggleBtn"><span class="box">✅</span> 地図に名前を表示</button>
       <button class="toggle-btn" id="showParkingArrowToggleBtn"><span class="box">✅</span> 停車方向の矢印を表示</button>
@@ -1537,7 +1581,16 @@ let modeBarPosition = 'top-left';   // 操作メニューをどの隅に置く�
 let zoomBarPosition = 'top-right';  // ズームボタンをどの隅に置くか
 let drawStyle = 'free'; // 'pan'(移動) | 'free'(フリーハンド) | 'straight'(点から点へ直線)
 let arrowEnabled = false; // フリーハンド／直線のどちらにも付けられる矢印ON/OFF
-let darkModeEnabled = false;
+let colorTheme = 'light'; // 'light'（通常） | 'dark'（ダーク） | 'gold'（黒金）
+// 地図のピン自体はCSSではなくJSで直接描いているため、テーマに合わせた色はここで管理する。
+// CSSの var(--orange)/var(--blue) を変えるだけでは地図上のピンの色は変わらない点に注意。
+const PIN_THEME_COLORS = {
+  light: { delivery: '#E8862E', parking: '#4FA0D6' },
+  dark:  { delivery: '#E8862E', parking: '#4FA0D6' },
+  gold:  { delivery: '#D4AF37', parking: '#B8B8C0' }
+};
+function deliveryColor(){ return (PIN_THEME_COLORS[colorTheme] || PIN_THEME_COLORS.light).delivery; }
+function parkingColor(){ return (PIN_THEME_COLORS[colorTheme] || PIN_THEME_COLORS.light).parking; }
 let largeTextEnabled = false;
 let showParkingArrowEnabled = true;
 let keepScreenOnEnabled = false; // 画面の自動ロックを防ぐか（ロックされると位置情報の更新が止まり、軌跡が飛ぶ原因になるため）
@@ -3204,7 +3257,7 @@ function addMarkerToMap(p){
   // 他の停車位置（住宅前など）と見分けやすいよう、ピンの中に絵文字を出す
   const parkingCat = (p.type === 'parking' && p.parkingCategory && p.parkingCategory !== 'general')
     ? PARKING_CATEGORIES[p.parkingCategory] : null;
-  const color = p.type === 'delivery' ? '#E8862E' : (parkingCat && parkingCat.pinColor ? parkingCat.pinColor : '#4FA0D6');
+  const color = p.type === 'delivery' ? deliveryColor() : (parkingCat && parkingCat.pinColor ? parkingCat.pinColor : parkingColor());
   const pinInner = (parkingCat && parkingCat.emoji)
     ? `<div class="pin-inner" style="display:flex; align-items:center; justify-content:center; font-size:9px; line-height:1; transform:rotate(45deg);">${parkingCat.emoji}</div>`
     : `<div class="pin-inner"></div>`;
@@ -4069,11 +4122,11 @@ function showParkingRelationOnMap(parkingPoint, deliveryPoint){
   parkingRelationLayer = L.layerGroup().addTo(map);
   L.polyline(
     [[parkingPoint.lat, parkingPoint.lng], [deliveryPoint.lat, deliveryPoint.lng]],
-    { color:'#4FA0D6', weight:3, opacity:0.8, dashArray:'6,6' }
+    { color:parkingColor(), weight:3, opacity:0.8, dashArray:'6,6' }
   ).addTo(parkingRelationLayer);
   // 停車位置側だけ目立つ輪を付けて、どちらがどちらか分かりやすくする（配達先は元のピンで既に分かるため）
   L.circleMarker([parkingPoint.lat, parkingPoint.lng], {
-    radius:14, color:'#4FA0D6', weight:3, fill:false
+    radius:14, color:parkingColor(), weight:3, fill:false
   }).addTo(parkingRelationLayer);
 
   const bounds = L.latLngBounds(
@@ -4142,7 +4195,7 @@ function polygonCentroid(poly){
 
 // 建物の輪郭が取得できている場合、その形を薄く描き、中央に名前を表示する
 function renderBuildingOutlineForPoint(p){
-  const color = p.type === 'delivery' ? '#E8862E' : '#4FA0D6';
+  const color = p.type === 'delivery' ? deliveryColor() : parkingColor();
   L.polygon(p.buildingOutline, {
     color: color, weight:2, fillColor: color, fillOpacity:0.15, interactive:false
   }).addTo(buildingOutlineLayer);
@@ -6015,7 +6068,7 @@ function runSearch(query){
       row.innerHTML = `
         <button type="button" class="batch-add-btn" data-id="${p.id}" style="position:absolute; top:8px; right:8px;
           width:26px; height:26px; border-radius:50%; border:none; font-size:13px;
-          background:${inBatch ? 'var(--blue)' : '#f3f4f6'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? (batchOrder + 1) : '＋'}</button>
+          background:${inBatch ? 'var(--blue)' : 'var(--line)'}; color:${inBatch ? '#fff' : 'var(--ink)'};">${inBatch ? (batchOrder + 1) : '＋'}</button>
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${p.type === 'delivery' ? 'var(--orange)' : 'var(--blue)'}; padding-right:30px;">
           ${typeLabelOf(p)} ${p.attention ? '⚠️' : ''} ${p.boxPassword ? '🔒' : ''}
           ${(p.type === 'delivery' && p.rating) ? `<span class="rating-chip" style="background:${ratingColor(p.rating)};">${p.rating}</span>` : ''}
@@ -6205,9 +6258,9 @@ async function runGeocodeSearch(){
     if (nearby.length > 0) {
       document.getElementById('geocodeDuplicateCountText').textContent = `この番地には既に${nearby.length}件、登録があります`;
       document.getElementById('geocodeDuplicateList').innerHTML = nearby.map(pt => `
-        <div style="display:flex; align-items:center; gap:8px; background:#fff; border-radius:8px; padding:6px 8px;">
-          <div style="width:18px; height:18px; border-radius:50%; background:${pt.type === 'delivery' ? '#E8862E' : '#4FA0D6'}; flex-shrink:0;"></div>
-          <div style="font-size:12px; color:var(--ink); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(pt.name || pt.nameKana || '（名前未登録）')}</div>
+        <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.6); border-radius:8px; padding:6px 8px;">
+          <div style="width:18px; height:18px; border-radius:50%; background:${pt.type === 'delivery' ? deliveryColor() : parkingColor()}; flex-shrink:0;"></div>
+          <div style="font-size:12px; color:#1f2937; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(pt.name || pt.nameKana || '（名前未登録）')}</div>
         </div>
       `).join('');
       dupWarn.style.display = 'block';
@@ -6439,7 +6492,11 @@ function loadDrawSettings(){
       if (typeof s.arrow === 'boolean') arrowEnabled = s.arrow;
       if (s.modeBarPosition) modeBarPosition = s.modeBarPosition;
       if (s.zoomBarPosition) zoomBarPosition = s.zoomBarPosition;
-      if (typeof s.darkMode === 'boolean') darkModeEnabled = s.darkMode;
+      if (typeof s.colorTheme === 'string' && ['light','dark','gold'].includes(s.colorTheme)) {
+        colorTheme = s.colorTheme;
+      } else if (typeof s.darkMode === 'boolean') {
+        colorTheme = s.darkMode ? 'dark' : 'light'; // 旧バージョン（ON/OFFのみ）からの移行
+      }
       if (typeof s.largeText === 'boolean') largeTextEnabled = s.largeText;
       if (typeof s.showNameLabels === 'boolean') showNameLabelsEnabled = s.showNameLabels;
       if (typeof s.showParkingArrow === 'boolean') showParkingArrowEnabled = s.showParkingArrow;
@@ -6466,7 +6523,7 @@ function loadDrawSettings(){
   document.querySelectorAll('#zoomBarPositionPicker [data-corner]').forEach(b =>
     b.classList.toggle('selected', b.dataset.corner === zoomBarPosition));
   updateArrowToggleLabel();
-  applyDarkMode();
+  applyColorTheme();
   applyLargeText();
   applyShowNameLabels();
   applyShowParkingArrow();
@@ -6484,7 +6541,7 @@ function saveDrawSettings(){
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
       color: currentDrawColor, weight: currentLineWeight, arrow: arrowEnabled,
       modeBarPosition: modeBarPosition, zoomBarPosition: zoomBarPosition,
-      darkMode: darkModeEnabled, largeText: largeTextEnabled, showNameLabels: showNameLabelsEnabled,
+      colorTheme: colorTheme, largeText: largeTextEnabled, showNameLabels: showNameLabelsEnabled,
       showParkingArrow: showParkingArrowEnabled,
       traceHeatmap: traceHeatmapEnabled, traceHeatmapHour: traceHeatmapHour,
       trailDay: trailDayEnabled, trailKm: trailKmEnabled, trailPermanent: trailPermanentEnabled,
@@ -6502,14 +6559,19 @@ function updateArrowToggleLabel(){
   applyToggleAppearance(document.getElementById('arrowToggleBtn'), arrowEnabled);
   applyToggleAppearance(document.getElementById('settingArrowToggleBtn'), arrowEnabled);
 }
-function applyDarkMode(){
-  document.documentElement.dataset.theme = darkModeEnabled ? 'dark' : 'light';
-  applyToggleAppearance(document.getElementById('darkModeToggleBtn'), darkModeEnabled);
+function applyColorTheme(){
+  document.documentElement.dataset.theme = colorTheme;
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.themeChoice === colorTheme);
+  });
 }
-document.getElementById('darkModeToggleBtn').addEventListener('click', () => {
-  darkModeEnabled = !darkModeEnabled;
-  applyDarkMode();
-  saveDrawSettings();
+document.querySelectorAll('.theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    colorTheme = btn.dataset.themeChoice;
+    applyColorTheme();
+    saveDrawSettings();
+    renderAllMarkers(); // 地図のピンの色（配達先／停車位置）をテーマに合わせて塗り直す
+  });
 });
 function applyLargeText(){
   document.documentElement.dataset.textSize = largeTextEnabled ? 'large' : 'normal';
