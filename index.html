@@ -230,26 +230,11 @@
   /* お客様評価（SSR/SR/R/A/B/C）の文字バッジ。名前ラベルと同じく常時表示。 */
   .rating-chip{ display:inline-block; margin-left:4px; padding:0 4px; border-radius:4px;
     font-size:9px; font-weight:700; color:#fff; vertical-align:middle; }
-  /* 停車方向の矢印。外側のwrapがアイコン中心からの位置（実際の方角の側）を決め、
-     内側のarrowだけを矢印の向きに回転させる（位置と回転を分けて、互いに干渉しないようにする）。 */
-  .parking-dir-arrow-wrap{
-    position:absolute; width:0; height:0; pointer-events:none;
-  }
-  #map.hide-parking-arrow .parking-dir-arrow-wrap{ display:none; }
-  .parking-dir-arrow{
-    position:absolute; top:0; left:0; transform-origin:center;
-    display:flex; align-items:center; justify-content:center;
-    width:26px; height:26px; margin:-13px 0 0 -13px;
-    font-size:26px; line-height:1; font-weight:900; color:#111827;
-    text-shadow:0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff;
-    filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));
-  }
-  /* 地点登録画面：停車方向を選ぶ9個のボタン（8方位＋どちらでも） */
-  .dir-btn{
-    padding:9px 4px; border:1px solid var(--line); border-radius:8px;
-    background:var(--paper); color:var(--ink); font-size:12px; cursor:pointer;
-  }
-  .dir-btn.selected{ background:var(--blue); color:#fff; border-color:var(--blue); font-weight:700; }
+  /* 停車位置の車・矢印アイコン：ピンには付けず、実際の停車位置に表示する。
+     地点数が多いと邪魔になるため、ある程度拡大した時だけ表示する（名前ラベルと同じ考え方）。 */
+  .stop-car-icon, .stop-dir-icon{ display:none; pointer-events:none; }
+  #map.zoom-close .stop-car-icon, #map.zoom-close .stop-dir-icon{ display:flex; }
+  #map.hide-parking-arrow .stop-car-icon, #map.hide-parking-arrow .stop-dir-icon{ display:none; }
 
   /* 建物の輪郭が取得できた場合、その中央に表示する名前（ピン横のラベルとは別の見た目） */
   .building-name-label{
@@ -796,19 +781,9 @@
           </select>
         </div>
 
-        <label class="field-label" style="margin-top:14px;">停車方向の矢印（任意・地図上のアイコン下に表示。全体図・配達組どちらでも表示されます）</label>
-        <div id="parkingDirPicker" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
-          <button type="button" class="dir-btn" data-dir="315">↖ 北西</button>
-          <button type="button" class="dir-btn" data-dir="0">↑ 北</button>
-          <button type="button" class="dir-btn" data-dir="45">↗ 北東</button>
-          <button type="button" class="dir-btn" data-dir="270">← 西</button>
-          <button type="button" class="dir-btn" data-dir="either">⇔ どちらでも</button>
-          <button type="button" class="dir-btn" data-dir="90">→ 東</button>
-          <button type="button" class="dir-btn" data-dir="225">↙ 南西</button>
-          <button type="button" class="dir-btn" data-dir="180">↓ 南</button>
-          <button type="button" class="dir-btn" data-dir="135">↘ 南東</button>
-        </div>
-        <button type="button" class="btn btn-secondary" id="parkingDirClearBtn" style="width:100%; margin-top:8px; padding:8px; font-size:12px;">矢印を消す（未設定に戻す）</button>
+        <p style="font-size:11px; color:var(--sub); margin-top:10px; line-height:1.6;">
+          停車する位置と車の向きは、保存した後に詳細画面の「🚗 停車位置を設定する」から、地図上でドラッグして指定できます。
+        </p>
       </div>
 
       <label class="field-label">写真（任意・複数枚追加できます）</label>
@@ -1515,29 +1490,12 @@ const SETTINGS_KEY = 'delivery-draw-settings-v1';
 let points = [];          // {id, lat, lng, type, memo, photo, attention, createdAt}
 let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
 let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
-let map, myMarker, markersLayer, buildingOutlineLayer, traceHeatmapLayer, drawingsLayer, stampsLayer, myTrailLayer;
+let map, myMarker, markersLayer, buildingOutlineLayer, stopMarkersLayer, traceHeatmapLayer, drawingsLayer, stampsLayer, myTrailLayer;
 let originMarker = null; // 「配達先を組む」で出発地点が現在地の時だけ出す、目印用のマーカー
 let pendingLatLng = null;
 let pendingType = null;
 let pendingParkingCategory = 'general';
-let pendingParkingDirValue = null; // 停車方向：数値(度)の文字列 / 'either' / null(未設定)
 
-function updateParkingDirPickerUI(){
-  document.querySelectorAll('#parkingDirPicker .dir-btn').forEach(btn => {
-    btn.classList.toggle('selected', pendingParkingDirValue !== null && btn.dataset.dir === String(pendingParkingDirValue));
-  });
-}
-document.getElementById('parkingDirPicker').addEventListener('click', (e) => {
-  const btn = e.target.closest('.dir-btn');
-  if (!btn) return;
-  // もう一度同じボタンを押したら選択解除（未設定に戻す）
-  pendingParkingDirValue = (pendingParkingDirValue === btn.dataset.dir) ? null : btn.dataset.dir;
-  updateParkingDirPickerUI();
-});
-document.getElementById('parkingDirClearBtn').addEventListener('click', () => {
-  pendingParkingDirValue = null;
-  updateParkingDirPickerUI();
-});
 function buildParkingCategoryPicker(){
   const wrap = document.getElementById('parkingCategoryPicker');
   wrap.innerHTML = '';
@@ -1963,6 +1921,7 @@ function initMap(){
 
   markersLayer = L.layerGroup().addTo(map);
   buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
+  stopMarkersLayer = L.layerGroup().addTo(map); // 停車位置の🚗＋向きの矢印（ある程度拡大した時だけCSSで表示）
   traceHeatmapLayer = L.layerGroup().addTo(map); // 時間帯別の通りにくさの表示（見える化）
   drawingsLayer = L.layerGroup().addTo(map);
   stampsLayer = L.layerGroup().addTo(map);
@@ -3197,6 +3156,7 @@ function renderAllMarkers(){
   const visiblePoints = points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
     .filter(p => !batchModeActive || isPointInBatch(p.id) || p.id === batchOriginKey);
+  renderStopMarkers(visiblePoints);
   const visibleIds = new Set(visiblePoints.map(p => p.id));
   const alreadyDrawn = new Set();
   visiblePoints.forEach(p => {
@@ -3231,6 +3191,66 @@ function renderAllMarkers(){
     });
   }
   updateCount();
+}
+
+// ---------- 停車位置の🚗＋向きの矢印（ある程度拡大した時だけ表示） ----------
+// 以前はアイコンのそばに矢印を出していたが、実際の停車位置・向きが伝わりにくいため、
+// 実際に車を停める場所に🚗と短い矢印（または⇔）をそのまま表示する方式に変更した。
+// 表示するのは「停車位置が分かっている配達先」だけ：
+//   1. ドラッグで指定した専用の停車位置（p.stopLat/stopLng）
+//   2. 共有の停車位置に紐づけている場合（p.parkingPointId）
+// のどちらにも当てはまらない場合（「ここに停車」のみ・何も指定なし）は、特に示す情報が無いため出さない。
+function getStopPositionForPoint(p){
+  if (p.type !== 'delivery') return null;
+  if (typeof p.stopLat === 'number' && typeof p.stopLng === 'number') {
+    return { lat: p.stopLat, lng: p.stopLng };
+  }
+  if (p.parkingPointId && !p.parkHere) {
+    const parkingPt = points.find(pt => pt.id === p.parkingPointId);
+    if (parkingPt) return { lat: parkingPt.lat, lng: parkingPt.lng };
+  }
+  return null;
+}
+function renderStopMarkers(visiblePoints){
+  stopMarkersLayer.clearLayers();
+  visiblePoints.forEach(p => {
+    const stopPos = getStopPositionForPoint(p);
+    if (!stopPos) return;
+
+    const carIcon = L.divIcon({
+      className:'',
+      html:'<div class="stop-car-icon" style="align-items:center; justify-content:center; font-size:22px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));">🚗</div>',
+      iconSize:[22,22], iconAnchor:[11,11]
+    });
+    L.marker([stopPos.lat, stopPos.lng], { icon:carIcon, interactive:false, zIndexOffset:1500 }).addTo(stopMarkersLayer);
+
+    // 向き：直接指定していればそれを最優先、無ければ「停車位置→配達先」の方角を自動で使う
+    let dirVal = (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '')
+      ? String(p.parkingDirValue) : null;
+    if (dirVal === null) {
+      dirVal = String(Math.round(bearingDegrees(stopPos.lat, stopPos.lng, p.lat, p.lng)));
+    }
+    if (dirVal === 'either') {
+      const eitherIcon = L.divIcon({
+        className:'',
+        html:'<div class="stop-dir-icon" style="align-items:center; justify-content:center; font-size:18px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));" title="停車方向（どちらでも可）">⇔</div>',
+        iconSize:[22,22], iconAnchor:[11,11]
+      });
+      L.marker([stopPos.lat, stopPos.lng], { icon:eitherIcon, interactive:false, zIndexOffset:1501 }).addTo(stopMarkersLayer);
+    } else {
+      const brng = Number(dirVal);
+      // 矢印は短く：停車位置からごく近くに置くだけにする（STOP_EDIT_DIR_RADIUS_M＝編集時と同じ距離感）
+      const dirPos = destinationPoint(stopPos.lat, stopPos.lng, brng, STOP_EDIT_DIR_RADIUS_M);
+      const dirIcon = L.divIcon({
+        className:'',
+        html:`<div class="stop-dir-icon" style="align-items:center; justify-content:center;">
+          <div style="font-size:18px; line-height:1; transform:rotate(${brng}deg); filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));">⬆️</div>
+        </div>`,
+        iconSize:[22,22], iconAnchor:[11,11]
+      });
+      L.marker([dirPos.lat, dirPos.lng], { icon:dirIcon, interactive:false, zIndexOffset:1502 }).addTo(stopMarkersLayer);
+    }
+  });
 }
 
 // ---------- お客様評価（SSR/SR/R/A/B/C）のワンタッチ登録 ----------
@@ -3285,41 +3305,6 @@ function addMarkerToMap(p){
   const originLabel = isRouteOrigin
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
 
-  // 停車方向の矢印。アイコンの中心から、実際の方角の側（北なら上、南なら下、東なら右…）に
-  // 配置することで、どの向きでも矢印が指す意味がアイコンに埋もれず分かるようにする。
-  // 全体図・配達組どちらでも常に表示する。
-  // 地点登録画面で直接指定した方角(parkingDirValue)を最優先で使い、
-  // 指定が無く、かつ停車位置を紐づけている（parkingPointId）場合だけ、
-  // その紐づけ先の方角から自動計算する（以前からの機能との後方互換）。
-  let parkingDirArrow = '';
-  if (p.type === 'delivery') {
-    let dirVal = (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '')
-      ? p.parkingDirValue : null;
-    if (dirVal === null && p.parkingPointId && !p.parkHere) {
-      const parkingPt = points.find(pt => pt.id === p.parkingPointId);
-      if (parkingPt) dirVal = String(Math.round(bearingDegrees(p.lat, p.lng, parkingPt.lat, parkingPt.lng)));
-    }
-    if (dirVal !== null) {
-      const PARKING_DIR_RADIUS = 22; // アイコン中心から矢印までの距離(px)
-      if (dirVal === 'either') {
-        // どちらでも良い場合は特定の向きが無いので、アイコンの真下に置く
-        parkingDirArrow = `
-          <div class="parking-dir-arrow-wrap" style="left:50%; top:50%; transform:translate(-50%,-50%) translate(0px, ${PARKING_DIR_RADIUS}px);">
-            <div class="parking-dir-arrow" title="停車方向（どちらでも可）">⇔</div>
-          </div>`;
-      } else {
-        const brng = Number(dirVal);
-        const rad = brng * Math.PI / 180;
-        const dx = Math.round(Math.sin(rad) * PARKING_DIR_RADIUS);
-        const dy = Math.round(-Math.cos(rad) * PARKING_DIR_RADIUS);
-        parkingDirArrow = `
-          <div class="parking-dir-arrow-wrap" style="left:50%; top:50%; transform:translate(-50%,-50%) translate(${dx}px, ${dy}px);">
-            <div class="parking-dir-arrow" style="transform:rotate(${brng}deg);" title="停車方向">⬆️</div>
-          </div>`;
-      }
-    }
-  }
-
   let icon;
   if (parkingCat && parkingCat.colors) {
     // コンビニ各社は、ピンではなくチェーンの色で分かる丸いアイコンにする
@@ -3342,7 +3327,6 @@ function addMarkerToMap(p){
           ${p.isBase ? '<div class="badge badge-base">🚩</div>' : ''}
           ${p.provisional ? '<div class="badge badge-provisional">仮</div>' : ''}
         </div>
-        ${parkingDirArrow}
         ${originLabel || nameLabel}
       </div>`;
     icon = L.divIcon({ className:'', html, iconSize:[30, 30], iconAnchor:[15,30], popupAnchor:[0,-28] });
@@ -3474,8 +3458,6 @@ function openNewSheet(latlng){
   document.getElementById('photoInput').value = '';
   document.getElementById('linkedParkingSelect').value = '';
   document.getElementById('parkHereInput').checked = false;
-  pendingParkingDirValue = null;
-  updateParkingDirPickerUI();
   document.getElementById('parkingSelectWrap').style.display = 'block';
   renderPhotoPreviewList();
   document.getElementById('btnDelivery').classList.remove('selected');
@@ -3522,9 +3504,6 @@ function openEditSheet(id){
   document.getElementById('parkHereInput').checked = !!p.parkHere;
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
-  pendingParkingDirValue = (p.parkingDirValue !== undefined && p.parkingDirValue !== null && p.parkingDirValue !== '')
-    ? String(p.parkingDirValue) : null;
-  updateParkingDirPickerUI();
 
   openSheetOverlay('newOverlay');
 }
@@ -4005,7 +3984,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       p.parkingCategory = (pendingType === 'parking') ? pendingParkingCategory : null;
       p.isBase = (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false;
       p.parkingPointId = (pendingType === 'delivery' && !p.parkHere) ? (document.getElementById('linkedParkingSelect').value || null) : null;
-      p.parkingDirValue = (pendingType === 'delivery') ? pendingParkingDirValue : null;
+      // p.parkingDirValue（停車方向）はここでは触らない。詳細画面の「停車位置を設定する」でのみ変更する。
       savedPointForOutline = p;
     }
   } else {
@@ -4032,7 +4011,7 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
       isBase: (pendingType === 'parking') ? document.getElementById('isBaseInput').checked : false,
       parkingPointId: (pendingType === 'delivery' && !document.getElementById('parkHereInput').checked)
         ? (document.getElementById('linkedParkingSelect').value || null) : null,
-      parkingDirValue: (pendingType === 'delivery') ? pendingParkingDirValue : null,
+      parkingDirValue: null, // 停車位置を設定した時に初めて入る（詳細画面の「停車位置を設定する」）
       createdAt: Date.now(),
             updatedAt: Date.now(),
             createdBy: currentUserName
@@ -4355,7 +4334,8 @@ function destinationPoint(lat, lng, bearingDeg, distanceM){
 // ---------- 停車位置・向きのドラッグ編集 ----------
 // 共有の停車位置をわざわざ別登録するほどではない、1件の配達先専用の「停車位置＋向き」を
 // 地図上のドラッグだけで直感的に指定・修整できるようにする機能。
-// 普段の地図表示は今まで通り、配達先アイコンのそばの矢印だけ（p.parkingDirValueを使う）。
+// 普段の地図表示は renderStopMarkers() が、ここと同じ🚗＋⬆️のアイコンを
+// 実際の停車位置にずっと表示する（ある程度拡大した時だけ。p.parkingDirValueを使う）。
 // ここで動かす2つのつまみ（🚗停車位置／⬆️向き）は、編集中だけ地図に出して、
 // 決定したら消える（stopLat/stopLngは次に編集する時のために覚えておくだけ）。
 const STOP_EDIT_DIR_RADIUS_M = 12; // 停車位置から向きハンドルまでの距離
