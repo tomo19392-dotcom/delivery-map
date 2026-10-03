@@ -1122,6 +1122,31 @@
   </div>
 </div>
 
+<!-- 住所・部屋番号の一覧整理 -->
+<div class="sheet-overlay" id="roomCleanupOverlay">
+  <div class="sheet sheet-flex">
+    <button class="sheet-close-x" id="closeRoomCleanupXBtn">✕</button>
+    <div class="sheet-fixed-top">
+      <div class="handle"></div>
+      <h2>🏷️ 住所・部屋番号の整理</h2>
+      <p style="font-size:12px; color:var(--sub); margin-top:-4px; line-height:1.6;">
+        配達先の住所・部屋番号を一覧で見ながら直せます。候補が出ている時は、ボタンを押すとその場で分けます（押すまでは何も変更されません）。住所・部屋番号欄は直接書き換えても、その場で保存されます。
+      </p>
+    </div>
+    <div class="sheet-scroll-body">
+      <div id="roomCleanupList" style="display:flex; flex-direction:column; gap:14px;"></div>
+      <div id="roomCleanupEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
+        配達先の登録がありません
+      </div>
+    </div>
+    <div class="sheet-fixed-bottom">
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn btn-secondary" id="closeRoomCleanupBtn">閉じる</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 設定シート -->
 <div class="sheet-overlay" id="settingsOverlay">
   <div class="sheet">
@@ -1144,6 +1169,14 @@
     <div class="btn-row" style="margin-top:0; margin-bottom:16px;">
       <button class="btn btn-secondary" id="exportDataBtn">📤 書き出す</button>
       <button class="btn btn-secondary" id="importDataBtn">📥 読み込む</button>
+    </div>
+
+    <label class="field-label">住所・部屋番号の整理</label>
+    <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
+      以前から登録している配達先で、住所に部屋番号が混ざっているものを一覧で見ながら直せます。
+    </p>
+    <div class="btn-row" style="margin-top:0; margin-bottom:16px;">
+      <button class="btn btn-secondary" id="openRoomCleanupBtn">🏷️ 一覧で整理する</button>
     </div>
     <input type="file" id="importFileInput" accept="application/json,.json" style="display:none;" />
 
@@ -4106,6 +4139,17 @@ function distanceMeters(lat1, lng1, lat2, lng2){
 function fullAddressOf(p){
   return [p.address, p.roomNumber].filter(Boolean).join(' ');
 }
+// 住所の末尾が「◯号室」「◯号棟」「棟◯号室」などのはっきりした部屋表記で終わっている時だけ、
+// 自動で切り分ける候補を出す（数字だけの末尾は建物によって番地なのか部屋番号なのか判断できないため、候補にしない）。
+function guessRoomFromAddress(address){
+  if (!address) return null;
+  const m = address.match(/([0-9０-９]{1,4}\s*号室|[0-9０-９]{1,4}\s*号棟(\s*[0-9０-９]{1,4}\s*号室?)?|棟\s*[0-9０-９]{1,4}(\s*号室?)?)\s*$/);
+  if (!m) return null;
+  const room = m[0].trim();
+  const base = address.slice(0, m.index).trim();
+  if (!base || !room) return null;
+  return { base, room };
+}
 function compassDirection(lat1, lng1, lat2, lng2){
   // 度数(bearingDegrees)は、上の「現在地からの方角」表示と共通の計算式を使う
   const brng = bearingDegrees(lat1, lng1, lat2, lng2);
@@ -5286,6 +5330,91 @@ document.getElementById('closeTrashBtn').addEventListener('click', () => {
 });
 document.getElementById('trashRetentionNote').textContent =
   `削除してから${TRASH_RETENTION_DAYS}日間はここから元に戻せます。期限が過ぎたものは自動で消えます。`;
+
+// ---------- 住所・部屋番号の一覧整理 ----------
+// 部屋番号を自動で抜き出すと誤判定が起きうるため、はっきりした表記だけ「候補」として
+// ボタンで出し、実際に分けるかどうかは必ず人が押して決める（押すまでは何も変えない）。
+// 住所・部屋番号欄は一覧上で直接書き換えでき、その場（blur時）で保存する。
+function renderRoomCleanupList(){
+  const listEl = document.getElementById('roomCleanupList');
+  const emptyEl = document.getElementById('roomCleanupEmpty');
+  const targets = points
+    .filter(p => p.type === 'delivery')
+    .sort((a, b) => (a.address || '').localeCompare(b.address || '', 'ja'));
+
+  if (targets.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  listEl.innerHTML = targets.map(p => {
+    const guess = (!p.roomNumber && p.address) ? guessRoomFromAddress(p.address) : null;
+    const label = p.name || p.nameKana || (p.provisional ? '仮登録' : '（名前未登録）');
+    return `
+      <div class="room-cleanup-row" data-id="${p.id}"
+        style="border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:var(--bg);">
+        <div style="font-weight:700; font-size:13px; margin-bottom:6px;">${escapeHtml(label)}</div>
+        <label style="font-size:11px; color:var(--sub);">住所</label>
+        <input type="text" class="room-cleanup-address" autocomplete="off"
+          style="width:100%; padding:8px 10px; margin:2px 0 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--paper); color:var(--ink);"
+          value="${escapeHtml(p.address || '')}" />
+        <label style="font-size:11px; color:var(--sub);">部屋番号</label>
+        <input type="text" class="room-cleanup-room" autocomplete="off"
+          style="width:100%; padding:8px 10px; margin:2px 0; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--paper); color:var(--ink);"
+          value="${escapeHtml(p.roomNumber || '')}" />
+        ${guess ? `
+          <button type="button" class="btn btn-secondary room-cleanup-apply"
+            style="width:100%; margin-top:8px; padding:7px; font-size:12px;"
+            data-base="${escapeHtml(guess.base)}" data-room="${escapeHtml(guess.room)}">
+            💡 候補：「${escapeHtml(guess.room)}」を部屋番号に分ける
+          </button>` : ''}
+      </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.room-cleanup-row').forEach(row => {
+    const id = row.dataset.id;
+    const addressInput = row.querySelector('.room-cleanup-address');
+    const roomInput = row.querySelector('.room-cleanup-room');
+    const applyBtn = row.querySelector('.room-cleanup-apply');
+
+    const saveField = async (field, value) => {
+      const p = points.find(pt => pt.id === id);
+      if (!p) return;
+      p[field] = value.trim();
+      p.updatedAt = Date.now();
+      await savePoints();
+      renderAllMarkers();
+    };
+    addressInput.addEventListener('change', () => saveField('address', addressInput.value));
+    roomInput.addEventListener('change', () => saveField('roomNumber', roomInput.value));
+
+    if (applyBtn) {
+      applyBtn.addEventListener('click', async () => {
+        const p = points.find(pt => pt.id === id);
+        if (!p) return;
+        p.address = applyBtn.dataset.base;
+        p.roomNumber = applyBtn.dataset.room;
+        p.updatedAt = Date.now();
+        await savePoints();
+        renderAllMarkers();
+        renderRoomCleanupList(); // 分けた結果を一覧に反映し、候補ボタンも消す
+      });
+    }
+  });
+}
+document.getElementById('openRoomCleanupBtn').addEventListener('click', () => {
+  renderRoomCleanupList();
+  document.getElementById('settingsOverlay').classList.remove('open');
+  openSheetOverlay('roomCleanupOverlay');
+});
+document.getElementById('closeRoomCleanupBtn').addEventListener('click', () => {
+  document.getElementById('roomCleanupOverlay').classList.remove('open');
+});
+document.getElementById('closeRoomCleanupXBtn').addEventListener('click', () => {
+  document.getElementById('closeRoomCleanupBtn').click();
+});
 
 // ---------- すべて削除（パスワード必須。誰がいつ削除・失敗したかを記録する） ----------
 const DELETE_ALL_PASSWORD = 'sakujo';
