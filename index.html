@@ -3215,7 +3215,7 @@ function getStopPositionForPoint(p){
   }
   return null;
 }
-const STOP_DIR_ICON_PIXEL_OFFSET = 10; // 🚗アイコンの中心から矢印までの画面上の距離（px）。車から矢印が出ているように見える近さにする
+const STOP_DIR_ICON_PIXEL_OFFSET = 19; // 🚗アイコンの中心から矢印までの画面上の距離（px）。車のアイコンに重ならず、触れる程度の近さにする
 function renderStopMarkers(visiblePoints){
   stopMarkersLayer.clearLayers();
   visiblePoints.forEach(p => {
