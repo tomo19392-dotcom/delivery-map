@@ -1971,6 +1971,10 @@ function initMap(){
   map.on('zoomend', updateNameLabelVisibility);
   updateNameLabelVisibility();
 
+  // 🚗と矢印の間隔は画面ピクセル基準で決めているため、ズームが変わるたびに
+  // 置き直さないと、ズームするごとに間隔が広がったり狭まったりして見えてしまう。
+  map.on('zoomend', () => renderAllMarkers());
+
   // ---------- 選択中の線を全体ドラッグで移動する ----------
   map.on('mousedown', () => {
     if (lineDragState) map.dragging.disable(); // 線をつまんでいる間は地図が動かないようにする
@@ -3211,6 +3215,7 @@ function getStopPositionForPoint(p){
   }
   return null;
 }
+const STOP_DIR_ICON_PIXEL_OFFSET = 10; // 🚗アイコンの中心から矢印までの画面上の距離（px）。車から矢印が出ているように見える近さにする
 function renderStopMarkers(visiblePoints){
   stopMarkersLayer.clearLayers();
   visiblePoints.forEach(p => {
@@ -3239,8 +3244,16 @@ function renderStopMarkers(visiblePoints){
       L.marker([stopPos.lat, stopPos.lng], { icon:eitherIcon, interactive:false, zIndexOffset:1501 }).addTo(stopMarkersLayer);
     } else {
       const brng = Number(dirVal);
-      // 矢印は短く：停車位置からごく近くに置くだけにする（STOP_EDIT_DIR_RADIUS_M＝編集時と同じ距離感）
-      const dirPos = destinationPoint(stopPos.lat, stopPos.lng, brng, STOP_EDIT_DIR_RADIUS_M);
+      // 矢印は🚗のすぐ横に出したいので、実距離(m)ではなく画面上のピクセル距離で位置を決める。
+      // 実距離だと、拡大するほど同じ「m」でも画面上は遠くなってしまい、ズームを上げたときに
+      // 矢印が🚗から離れて見える原因になっていた。
+      const stopLayerPt = map.latLngToLayerPoint([stopPos.lat, stopPos.lng]);
+      const rad = brng * Math.PI / 180;
+      const dirLayerPt = L.point(
+        stopLayerPt.x + Math.sin(rad) * STOP_DIR_ICON_PIXEL_OFFSET,
+        stopLayerPt.y - Math.cos(rad) * STOP_DIR_ICON_PIXEL_OFFSET
+      );
+      const dirPos = map.layerPointToLatLng(dirLayerPt);
       const dirIcon = L.divIcon({
         className:'',
         html:`<div class="stop-dir-icon" style="align-items:center; justify-content:center;">
