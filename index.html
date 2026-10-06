@@ -859,6 +859,10 @@
           style="margin-top:5px; background:none; border:none; color:#7C3AED; font-size:10px; text-decoration:underline; padding:2px;">
           🔓 この部屋だけ切り離す
         </button>
+        <button type="button" id="detailBuildingAddRoomBtn"
+          style="display:block; width:100%; margin-top:6px; background:#7C3AED; color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:700; padding:7px;">
+          🏢＋ この建物に部屋を追加
+        </button>
       </div>
       <button type="button" id="detailBuildingNextBtn" aria-label="次の部屋"
         style="flex-shrink:0; width:36px; height:36px; border-radius:8px; border:none; background:#fff; color:#7C3AED; font-size:20px; font-weight:700;">›</button>
@@ -4491,6 +4495,22 @@ document.getElementById('stopEditConfirmBtn').addEventListener('click', async ()
     p.stopLng = stopLL.lng;
   }
 
+  // 同じ建物に他の部屋があれば、停車位置・向きを同じにするかを聞く。
+  // 部屋違いなら停車位置は同じことが多いので、基本は「OK」で全部屋に反映。
+  // 違う部屋だけ別にしたい時は「キャンセル」で、この部屋だけに保存される。
+  const siblings = findBuildingSiblings(p).filter(s => s.id !== p.id);
+  if (siblings.length > 0 &&
+      confirm(`同じ建物の他の${siblings.length}部屋にも、この停車位置・向きを反映しますか？\n\n［OK］全部屋に反映\n［キャンセル］この部屋だけ`)) {
+    siblings.forEach(s => {
+      s.parkingDirValue = p.parkingDirValue;
+      s.parkHere = false;
+      s.parkingPointId = p.parkingPointId || null;
+      s.stopLat = (typeof p.stopLat === 'number') ? p.stopLat : null;
+      s.stopLng = (typeof p.stopLng === 'number') ? p.stopLng : null;
+      s.updatedAt = Date.now();
+    });
+  }
+
   p.updatedAt = Date.now();
   cleanupStopPositionEdit();
   await savePoints();
@@ -4586,6 +4606,7 @@ function renderDetailBuildingNav(p){
   document.getElementById('detailBuildingNextBtn').onclick = () => {
     openDetailSheet(siblings[(idx + 1) % siblings.length].id);
   };
+  document.getElementById('detailBuildingAddRoomBtn').onclick = () => addRoomFromAnchor(p);
   document.getElementById('detailBuildingDetachBtn').onclick = () => {
     // 誤って統合してしまった場合の取り消し用。住所・位置はそのまま残し、
     // 「グループとして扱わない」印だけを付ける（元に戻したい時は、この部屋を
@@ -6103,7 +6124,13 @@ function runSearch(query){
         ${fullAddressOf(p) ? `<div style="font-size:12px; color:var(--sub); margin-top:1px;">📍 ${escapeHtml(fullAddressOf(p))}</div>` : ''}
         ${tagChips ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">${tagChips}</div>` : ''}
         ${memoPreview ? `<div style="font-size:13px; color:var(--ink); margin-top:3px;">${escapeHtml(memoPreview)}</div>` : ''}
+        ${p.type === 'delivery' ? `<button type="button" class="row-add-room-btn" style="margin-top:8px; width:100%; padding:8px; border:1px solid #DDD6FE; border-radius:8px; background:#F5F0FF; color:#7C3AED; font-size:12px; font-weight:700;">🏢＋ 同じ建物に部屋を追加</button>` : ''}
       `;
+      const addRoomBtn = row.querySelector('.row-add-room-btn');
+      if (addRoomBtn) addRoomBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
+        addRoomFromAnchor(p);
+      });
       row.querySelector('.batch-add-btn').addEventListener('click', (evt) => {
         evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
         toggleBatchPoint(p);
@@ -6347,16 +6374,49 @@ document.getElementById('geocodeProvisionalBtn').addEventListener('click', async
   map.setView([point.lat, point.lng], 18);
   setTimeout(() => openDetailSheet(point.id), 300); // 地図の移動が始まってから開く
 });
-document.getElementById('geocodeAddRoomBtn').addEventListener('click', async () => {
-  if (!lastGeocodeResult) return;
-  // 既存の建物と同じ座標・住所を引き継ぎ、部屋番号・名前・備考だけ入力すればいいようにする。
-  // （新規はtype:'delivery'として作るため、引き継ぎ元も配達先に限定する）
-  const nearby = points
-    .filter(pt => pt.type === 'delivery')
-    .filter(pt => distanceMeters(pt.lat, pt.lng, lastGeocodeResult.lat, lastGeocodeResult.lng) <= BUILDING_GROUP_RADIUS_M)
-    .filter(pt => addressSimilarity(pt.address, lastGeocodeResult.label) >= ADDRESS_MATCH_THRESHOLD);
-  if (nearby.length === 0) return;
-  const anchor = nearby[0];
+// ---------- 同じ建物に部屋を追加（部屋番号だけ入力すればOK） ----------
+// 部屋違いなら停車位置・写真の置き場は同じことが多いので、住所・位置に加えて
+// 停車関係の設定（共有停車位置・専用停車座標・向き・「配達先と同じ場所」・経路）も引き継ぐ。
+// 違う部屋だけは、追加後に詳細画面から停車位置を設定し直せば、その部屋だけ別になる。
+function pickRoomAnchor(list){
+  return list.find(pt => pt.parkingPointId || typeof pt.stopLat === 'number' || pt.parkHere) || list[0];
+}
+function askRoomNumber(anchor){
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    ov.innerHTML = `
+      <div style="background:var(--paper); color:var(--ink); border-radius:14px; padding:16px; width:100%; max-width:340px;">
+        <div style="font-size:15px; font-weight:700; margin-bottom:4px;">🏢 この建物に部屋を追加</div>
+        <div style="font-size:12px; color:var(--sub); margin-bottom:10px;">📍 ${escapeHtml(anchor.address || anchor.name || '')}</div>
+        <input type="text" id="quickRoomInput" autocomplete="off" placeholder="部屋番号　例）202号室"
+          style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:15px; background:var(--paper); color:var(--ink); box-sizing:border-box;" />
+        <p style="font-size:11px; color:var(--sub); margin:8px 0 12px;">住所・位置・停車位置は引き継ぎます。</p>
+        <div style="display:flex; gap:8px;">
+          <button type="button" id="quickRoomCancel" class="btn btn-secondary" style="flex:1; padding:10px;">キャンセル</button>
+          <button type="button" id="quickRoomOk" class="btn btn-primary" style="flex:1; padding:10px;">追加</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const input = ov.querySelector('#quickRoomInput');
+    const done = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector('#quickRoomCancel').addEventListener('click', () => done(null));
+    ov.querySelector('#quickRoomOk').addEventListener('click', () => done(input.value.trim()));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(input.value.trim()); } });
+    setTimeout(() => input.focus(), 50);
+  });
+}
+async function addRoomFromAnchor(anchor){
+  // 選んだ部屋に停車の設定が無くても、同じ建物の他の部屋に設定があればそちらを引き継ぐ
+  const hasStop = (pt) => pt.parkingPointId || typeof pt.stopLat === 'number' || pt.parkHere;
+  if (!hasStop(anchor)) {
+    const sibs = findBuildingSiblings(anchor);
+    if (sibs.length) anchor = pickRoomAnchor(sibs);
+  }
+  const room = await askRoomNumber(anchor);
+  if (room === null) return;
+  const dup = findBuildingSiblings(anchor).find(pt => room && (pt.roomNumber || '') === room);
+  if (dup && !confirm(`「${room}」は既に登録されています。もう1件追加しますか？`)) return;
   const point = {
     id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     lat: anchor.lat,
@@ -6364,9 +6424,16 @@ document.getElementById('geocodeAddRoomBtn').addEventListener('click', async () 
     type: 'delivery',
     status: 'pending',
     name: '',
-    address: anchor.address || lastGeocodeResult.label,
+    address: anchor.address || '',
+    roomNumber: room,
     memo: '', tags: [], boxPassword: '', photos: [], attention: false,
-    parkHere: false, parkingCategory: null, isBase: false,
+    parkHere: !!anchor.parkHere,
+    parkingPointId: anchor.parkingPointId || null,
+    stopLat: (typeof anchor.stopLat === 'number') ? anchor.stopLat : null,
+    stopLng: (typeof anchor.stopLng === 'number') ? anchor.stopLng : null,
+    parkingDirValue: (anchor.parkingDirValue !== undefined) ? anchor.parkingDirValue : null,
+    routeDrawingId: anchor.routeDrawingId || null,
+    parkingCategory: null, isBase: false,
     provisional: true, // 仮登録の印
     createdAt: Date.now(), updatedAt: Date.now(), createdBy: currentUserName
   };
@@ -6375,8 +6442,19 @@ document.getElementById('geocodeAddRoomBtn').addEventListener('click', async () 
   await savePoints();
   renderAllMarkers();
   document.getElementById('searchOverlay').classList.remove('open');
-  map.setView([point.lat, point.lng], 18);
-  setTimeout(() => openDetailSheet(point.id), 300);
+  document.getElementById('detailOverlay').classList.remove('open');
+  map.setView([point.lat, point.lng], Math.max(map.getZoom(), 18));
+  setTimeout(() => openDetailSheet(point.id), 300); // 地図の移動が始まってから開く
+}
+document.getElementById('geocodeAddRoomBtn').addEventListener('click', () => {
+  if (!lastGeocodeResult) return;
+  // （新規はtype:'delivery'として作るため、引き継ぎ元も配達先に限定する）
+  const nearby = points
+    .filter(pt => pt.type === 'delivery')
+    .filter(pt => distanceMeters(pt.lat, pt.lng, lastGeocodeResult.lat, lastGeocodeResult.lng) <= BUILDING_GROUP_RADIUS_M)
+    .filter(pt => addressSimilarity(pt.address, lastGeocodeResult.label) >= ADDRESS_MATCH_THRESHOLD);
+  if (nearby.length === 0) return;
+  addRoomFromAnchor(pickRoomAnchor(nearby));
 });
 
 // ---------- 住所検索の履歴 ----------
@@ -6404,7 +6482,9 @@ function saveSearchHistoryEntry(query){
 function renderSearchHistory(){
   const row = document.getElementById('searchHistoryRow');
   if (!row) return;
-  if (searchHistory.length === 0) { row.style.display = 'none'; return; }
+  // 入力が始まったら検索結果を先に見せたいので、履歴は入力欄が空の時だけ出す
+  const inputEl = document.getElementById('searchInput');
+  if (searchHistory.length === 0 || (inputEl && inputEl.value.trim() !== '')) { row.style.display = 'none'; return; }
   row.innerHTML = searchHistory.slice(0, SEARCH_HISTORY_SHOW).map(q => `
     <button type="button" class="search-history-chip" data-q="${escapeHtml(q)}"
       style="background:var(--bg); border:1px solid var(--line); border-radius:99px; padding:5px 12px;
@@ -6437,7 +6517,10 @@ function openSearchOverlay(){
 }
 document.getElementById('searchBtn').addEventListener('click', openSearchOverlay);
 document.getElementById('batchQuickBtn').addEventListener('click', openSearchOverlay);
-document.getElementById('searchInput').addEventListener('input', (e) => runSearch(e.target.value));
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  runSearch(e.target.value);
+  renderSearchHistory(); // 入力中は履歴を隠し、空に戻したら再び出す
+});
 document.getElementById('closeSearchBtn').addEventListener('click', () => {
   document.getElementById('searchOverlay').classList.remove('open');
 });
