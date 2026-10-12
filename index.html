@@ -737,27 +737,16 @@
     </div>
 
     <div class="sheet-scroll-body">
-      <label class="field-label">ふりがな（任意・すぐ打てる方をここに）</label>
-      <input type="text" id="nameKanaInput" name="deliveryMapNameKana_nofill" autocomplete="off" placeholder="例）たなか"
-        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
-
-      <label class="field-label">名前・呼び名（漢字・任意。あとで分かれば入力）</label>
+      <label class="field-label">名前・呼び名（任意）</label>
       <input type="text" id="nameInput" name="deliveryMapName_nofill" autocomplete="off" placeholder="例）田中様／○○マンション301"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
-      <label class="field-label">住所（任意・建物までの住所。部屋番号は下の欄へ）</label>
+      <label class="field-label">住所（建物までの住所）</label>
       <input type="text" id="addressInput" name="deliveryMapAddress_nofill" autocomplete="off" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <label class="field-label">部屋番号・号室など（任意）</label>
       <input type="text" id="roomNumberInput" name="deliveryMapRoomNumber_nofill" autocomplete="off" placeholder="例）101号室"
-        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
-      <p style="font-size:11px; color:var(--sub); margin-top:-4px;">
-        同じ建物の別の部屋をもう1件登録する時、検索履歴から住所だけ選んで、ここだけ書き換えれば済むようにする欄です。
-      </p>
-
-      <label class="field-label">住所のふりがな（任意・漢字変換前でも検索できるようになります）</label>
-      <input type="text" id="addressKanaInput" name="deliveryMapAddressKana_nofill" autocomplete="off" placeholder="例）うちさんげ"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <div id="parkingCategoryWrap" style="display:none;">
@@ -768,6 +757,19 @@
           <span style="font-size:13px;">🚩 拠点として登録する（ルートを組む時、出発地点にいつでも選べるようになります）</span>
         </label>
       </div>
+
+      <label class="field-label">メモ・注意書き（任意）</label>
+      <textarea id="memoInput" name="deliveryMapMemo_nofill" autocomplete="off" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
+
+      <details id="newAdvanced" style="margin-top:14px; border:1px solid var(--line); border-radius:10px; padding:0 12px;">
+        <summary id="newAdvancedSummary" style="padding:12px 0; font-size:14px; font-weight:700; cursor:pointer;">詳細（写真・BOX・タグ・停車位置・ふりがななど）</summary>
+      <label class="field-label">名前のふりがな（変換の読みから自動で入ります）</label>
+      <input type="text" id="nameKanaInput" name="deliveryMapNameKana_nofill" autocomplete="off" placeholder="例）たなか"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+
+      <label class="field-label">住所のふりがな（変換の読みから自動で入ります）</label>
+      <input type="text" id="addressKanaInput" name="deliveryMapAddressKana_nofill" autocomplete="off" placeholder="例）うちさんげ"
+        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
       <div id="linkedParkingWrap" style="display:none;">
         <label class="field-label">停車位置（任意）</label>
@@ -824,13 +826,13 @@
       <label class="field-label">よくある注意点（複数選べます）</label>
       <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
 
-      <label class="field-label">その他注意書き（任意・タグに無い内容のみ）</label>
-      <textarea id="memoInput" name="deliveryMapMemo_nofill" autocomplete="off" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
-
       <div class="attn-row">
         <input type="checkbox" id="attnInput" />
         <span>⚠️ 注意が必要な地点（通行注意・軽バン不可など）</span>
       </div>
+    </div>
+
+      </details>
     </div>
 
     <div class="sheet-fixed-bottom">
@@ -983,7 +985,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索</h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1012-B（新規登録ボタン・ふりがな自動）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1008,7 +1010,7 @@
     </div>
     <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
     <div id="searchEmpty" style="display:none; font-size:13px; color:var(--sub); text-align:center; padding:20px 0;">
-      見つかりませんでした
+      登録なし。Enterキーで地図から探せます
     </div>
     <button type="button" class="btn btn-secondary" id="geocodeSearchBtn" style="width:100%; margin-top:4px; padding:9px; font-size:13px;">
       🗺️ この住所を地図で探す
@@ -1025,13 +1027,15 @@
           background:#7C3AED; color:#fff; border:none; border-radius:10px;">🏢 この建物に部屋を追加（仮登録）</button>
         <p style="font-size:10px; color:#92400E; margin:6px 0 0;">住所・位置は上の登録を引き継ぎ、部屋番号・名前・備考だけ入力すればOK</p>
       </div>
+      <button type="button" id="geocodeNewBtn" style="width:100%; padding:15px; font-size:16px; font-weight:700;
+        background:var(--orange); color:#fff; border:none; border-radius:12px; margin-bottom:10px;">📌 新規登録（名前・部屋を入力）</button>
       <div class="btn-row" style="margin-top:0;">
         <button type="button" class="btn btn-secondary" id="geocodeViewBtn" style="padding:7px; font-size:12px;">🗺️ 地図で見る</button>
         <button type="button" class="btn btn-primary" id="geocodeAddBatchBtn" style="padding:7px; font-size:12px;">➕ 便に追加</button>
       </div>
       <div style="border-top:1px solid var(--line); margin:8px 0 6px;"></div>
       <button type="button" id="geocodeProvisionalBtn" style="width:100%; padding:9px; font-size:13px; font-weight:700;
-        background:#8B5CF6; color:#fff; border:none; border-radius:10px;">📌 まだ登録していない場所として仮登録する</button>
+        background:#8B5CF6; color:#fff; border:none; border-radius:10px;">🕐 あとで入力する（仮登録だけしておく）</button>
       <p style="font-size:11px; color:var(--sub); margin:4px 0 0;">現地に着いたら、詳細画面から内容を入力・保存すれば本登録になります</p>
     </div>
     </div>
@@ -3484,6 +3488,9 @@ function openNewSheet(latlng){
   document.getElementById('boxPasswordWrap').style.display = 'none'; // 種類を選ぶまでは、配達先専用の項目は隠しておく
   document.getElementById('typeRow').style.display = pendingParkingLinkTargetId ? 'none' : 'flex';
   if (pendingParkingLinkTargetId) selectType('parking'); // 紐づけ待ちのときは種類を固定する
+  document.getElementById('nameKanaInput').dataset.auto = '';
+  document.getElementById('addressKanaInput').dataset.auto = '';
+  document.getElementById('newAdvanced').open = false; // 新規登録は、まず名前・住所・部屋番号だけを見せる
   openSheetOverlay('newOverlay');
 }
 
@@ -3522,8 +3529,40 @@ function openEditSheet(id){
   document.getElementById('parkingSelectWrap').style.display = p.parkHere ? 'none' : 'block';
   document.getElementById('linkedParkingSelect').value = p.parkingPointId || '';
 
+  document.getElementById('nameKanaInput').dataset.auto = '';
+  document.getElementById('addressKanaInput').dataset.auto = '';
+  // 詳細の中に入力済みの内容がある地点は、見落とさないよう最初から開いておく
+  const hasAdvanced = (p.tags && p.tags.length) || (p.photos && p.photos.length) || p.boxPassword
+    || p.attention || p.parkHere || p.parkingPointId;
+  document.getElementById('newAdvanced').open = !!hasAdvanced;
   openSheetOverlay('newOverlay');
 }
+
+// ---------- ふりがなの自動入力 ----------
+// 漢字に変換する前の「読み（ひらがな）」を、変換の途中で取り込んでふりがな欄へ入れる。
+// 手でふりがなを入力した欄・既にふりがなが入っている欄は、上書きしない。
+function setupKanaAutoCapture(textId, kanaId){
+  const textEl = document.getElementById(textId);
+  const kanaEl = document.getElementById(kanaId);
+  const isHiragana = (str) => /^[ぁ-ゖー\s]*$/.test(str);
+  let base = null; // 変換を始める前の、ふりがな欄の中身
+  const isAuto = () => kanaEl.value === '' || kanaEl.dataset.auto === '1';
+  kanaEl.addEventListener('input', () => { kanaEl.dataset.auto = '0'; }); // 手で触ったら自動入力を止める
+  textEl.addEventListener('compositionstart', () => { base = isAuto() ? kanaEl.value : null; });
+  textEl.addEventListener('compositionupdate', (e) => {
+    if (base === null) return;
+    if (e.data && isHiragana(e.data)) { // 変換候補（漢字）に切り替わった時は、直前の読みを保つ
+      kanaEl.value = base + e.data;
+      kanaEl.dataset.auto = '1';
+    }
+  });
+  textEl.addEventListener('compositionend', () => { base = null; });
+  textEl.addEventListener('input', () => {
+    if (textEl.value === '' && kanaEl.dataset.auto === '1') kanaEl.value = ''; // 消したらふりがなも消す
+  });
+}
+setupKanaAutoCapture('nameInput', 'nameKanaInput');
+setupKanaAutoCapture('addressInput', 'addressKanaInput');
 
 document.getElementById('btnDelivery').addEventListener('click', () => selectType('delivery'));
 document.getElementById('btnParking').addEventListener('click', () => selectType('parking'));
@@ -6337,6 +6376,19 @@ document.getElementById('geocodeViewBtn').addEventListener('click', () => {
   document.getElementById('searchOverlay').classList.remove('open');
   map.setView([lastGeocodeResult.lat, lastGeocodeResult.lng], 18);
   showSearchResultMarker(lastGeocodeResult.lat, lastGeocodeResult.lng);
+});
+document.getElementById('geocodeNewBtn').addEventListener('click', () => {
+  if (!lastGeocodeResult) return;
+  // 仮登録→詳細→編集という遠回りをせず、見つかった場所でそのまま登録シートを開く。
+  // 住所は入力済みの内容を引き継ぐので、名前と部屋番号だけ入れれば保存できる。
+  const { lat, lng, label } = lastGeocodeResult;
+  document.getElementById('searchOverlay').classList.remove('open');
+  map.setView([lat, lng], 18);
+  showSearchResultMarker(lat, lng);
+  openNewSheet({ lat, lng });
+  selectType('delivery');
+  document.getElementById('addressInput').value = label;
+  setTimeout(() => document.getElementById('nameInput').focus(), 250);
 });
 document.getElementById('geocodeAddBatchBtn').addEventListener('click', () => {
   if (!lastGeocodeResult) return;
