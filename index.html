@@ -830,8 +830,6 @@
         <input type="checkbox" id="attnInput" />
         <span>⚠️ 注意が必要な地点（通行注意・軽バン不可など）</span>
       </div>
-    </div>
-
       </details>
     </div>
 
@@ -985,7 +983,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1012-B（新規登録ボタン・ふりがな自動）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1012-C（登録シートの崩れ修正）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -3541,9 +3539,9 @@ function openEditSheet(id){
 // ---------- ふりがなの自動入力 ----------
 // 漢字に変換する前の「読み（ひらがな）」を、変換の途中で取り込んでふりがな欄へ入れる。
 // 手でふりがなを入力した欄・既にふりがなが入っている欄は、上書きしない。
-function setupKanaAutoCapture(textId, kanaId){
+function setupKanaAutoCapture(textId, kanaIdOrEl){
   const textEl = document.getElementById(textId);
-  const kanaEl = document.getElementById(kanaId);
+  const kanaEl = (typeof kanaIdOrEl === 'string') ? document.getElementById(kanaIdOrEl) : kanaIdOrEl;
   const isHiragana = (str) => /^[ぁ-ゖー\s]*$/.test(str);
   let base = null; // 変換を始める前の、ふりがな欄の中身
   const isAuto = () => kanaEl.value === '' || kanaEl.dataset.auto === '1';
@@ -3563,6 +3561,13 @@ function setupKanaAutoCapture(textId, kanaId){
 }
 setupKanaAutoCapture('nameInput', 'nameKanaInput');
 setupKanaAutoCapture('addressInput', 'addressKanaInput');
+// 住所は検索欄で打ってから「新規登録」に進むことが多く、登録シートでは打ち直さない。
+// そのため、検索欄で打った時の読みも取っておき、新規登録の時に住所のふりがなへ引き継ぐ。
+const searchKanaHolder = document.createElement('input'); // 画面には出さない、読みの置き場
+setupKanaAutoCapture('searchInput', searchKanaHolder);
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  if (e.target.value === '') { searchKanaHolder.value = ''; searchKanaHolder.dataset.auto = ''; }
+});
 
 document.getElementById('btnDelivery').addEventListener('click', () => selectType('delivery'));
 document.getElementById('btnParking').addEventListener('click', () => selectType('parking'));
@@ -6388,6 +6393,11 @@ document.getElementById('geocodeNewBtn').addEventListener('click', () => {
   openNewSheet({ lat, lng });
   selectType('delivery');
   document.getElementById('addressInput').value = label;
+  if (searchKanaHolder.value) {
+    // 検索欄で打った時の読みを、住所のふりがなとして引き継ぐ（手入力扱いにして、あとで上書きされないようにする）
+    document.getElementById('addressKanaInput').value = searchKanaHolder.value;
+    document.getElementById('addressKanaInput').dataset.auto = '0';
+  }
   setTimeout(() => document.getElementById('nameInput').focus(), 250);
 });
 document.getElementById('geocodeAddBatchBtn').addEventListener('click', () => {
@@ -6557,6 +6567,7 @@ function renderSearchHistory(){
 
 function openSearchOverlay(){
   document.getElementById('searchInput').value = '';
+  searchKanaHolder.value = ''; searchKanaHolder.dataset.auto = ''; // 前回の読みを持ち越さない
   document.getElementById('searchResults').innerHTML = '';
   document.getElementById('searchEmpty').style.display = 'none';
   document.getElementById('geocodeStatusText').textContent = '';
