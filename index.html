@@ -996,7 +996,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1019-A（軌跡・写真ボタン・タグ）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1019-B（軌跡の飛び対策）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -2653,16 +2653,16 @@ let trailPoints = []; // { lat, lng, t, brk? }
 // 離れた場所になっていることがあり、そのまま線で繋ぐと直線で飛んで見えてしまう。
 // 画面が非表示になったことを検知しておき、次に記録される1点に「区切り」の印を付けることで、
 // 実際にどれだけの時間・距離が空いたかに関係なく、そこで必ず線を切るようにする。
-let trailPendingBreak = false;
+// アプリを開き直した（再読み込みを含む）直後の1点も、閉じていた間の動きは記録されていないので必ず区切る
+let trailPendingBreak = true;
 let trailHiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     trailPendingBreak = true;
     trailHiddenAt = Date.now();
-  } else if (trailHiddenAt && Date.now() - trailHiddenAt < 60 * 1000) {
-    // 写真撮影などで1分以内に戻ってきた場合は、移動の空白ではないので線を切らない
-    trailPendingBreak = false;
   }
+  // 戻ってきたときに区切りを取り消すことはしない（短時間でも、車で動いていれば直線で飛ぶため）。
+  // 写真撮影などで同じ場所にいる場合は、区切っても線の見た目は変わらない。
 });
 
 // ---------- 画面の自動ロックを防ぐ（Wake Lock） ----------
@@ -2715,7 +2715,24 @@ function saveTrail(){
   try { localStorage.setItem(TRAIL_KEY, JSON.stringify(trailPoints)); }
   catch (e) { console.error('軌跡データの保存に失敗', e); }
 }
-function handleTrailPoint(lat, lng, timestampMs){
+// 位置の精度が悪い（半径が大きい）点は、実際の位置から数百m離れていることがあり、
+// 記録すると線が大きく飛ぶ原因になるため軌跡には残さない（自分のマーカー表示には影響しない）
+const TRAIL_MAX_ACCURACY_M = 50;
+// 2点を線でつないでよいかの判定。次のいずれかなら「つながない」
+//  ・区切りの印が付いている／3分以上空いている
+//  ・20秒以上空いていて、150m以上離れている（途中の道のりが記録されていない）
+//  ・速度が秒速70m（時速252km）を超える（位置の誤差による飛び）
+function trailBreakBetween(a, b){
+  if (b.brk) return true;
+  const dt = b.t - a.t;
+  if (dt > TRAIL_GAP_MS) return true;
+  const d = distanceMeters(a.lat, a.lng, b.lat, b.lng);
+  if (dt > 20000 && d > 150) return true;
+  if (dt > 0 && d / (dt / 1000) > 70 && d > 40) return true;
+  return false;
+}
+function handleTrailPoint(lat, lng, timestampMs, accuracy){
+  if (typeof accuracy === 'number' && accuracy > TRAIL_MAX_ACCURACY_M) return;
   const last = trailPoints[trailPoints.length - 1];
   const forceBreak = trailPendingBreak;
   if (last && !forceBreak) {
@@ -2856,7 +2873,7 @@ function splitTrailSegments(pts){
   const segments = [];
   let current = [];
   for (let i = 0; i < pts.length; i++) {
-    if (current.length > 0 && (pts[i].brk || (pts[i].t - current[current.length - 1].t) > TRAIL_GAP_MS)) {
+    if (current.length > 0 && trailBreakBetween(current[current.length - 1], pts[i])) {
       if (current.length >= 2) segments.push(current);
       current = [];
     }
@@ -3086,7 +3103,7 @@ function startWatchingMyLocation(){
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
-      handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now());
+      handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
       trackBatchSplitCandidate(pos.coords.latitude, pos.coords.longitude, Date.now());
     },
     (err) => {
