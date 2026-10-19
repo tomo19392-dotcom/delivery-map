@@ -459,6 +459,11 @@
     font-size:12px; color:var(--ink); cursor:pointer; white-space:nowrap;
   }
   .note-tag-btn.selected{ background:#374151; color:#fff; border-color:#374151; }
+  .quick-tag-btn{
+    padding:11px 14px; min-height:44px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+    font-size:14px; font-weight:600; color:var(--ink); cursor:pointer; white-space:nowrap;
+  }
+  .quick-tag-btn.selected{ background:#374151; color:#fff; border-color:#374151; }
   .note-tag-chip{
     display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px;
     background:#374151; color:#fff; font-size:12px; white-space:nowrap;
@@ -867,6 +872,14 @@
       <button type="button" id="detailBuildingNextBtn" aria-label="次の部屋"
         style="flex-shrink:0; width:36px; height:36px; border-radius:8px; border:none; background:#fff; color:#7C3AED; font-size:20px; font-weight:700;">›</button>
     </div>
+    <div id="detailQuickBar" style="display:flex; gap:8px; margin:0 0 8px;">
+      <button type="button" class="btn btn-primary" id="quickPhotoBtn" style="padding:15px 6px; font-size:15px;">📷 写真</button>
+      <button type="button" class="btn btn-secondary" id="quickEditBtn" style="padding:15px 6px; font-size:15px;">✏️ 編集</button>
+      <button type="button" class="btn btn-secondary" id="quickStopBtn" style="padding:15px 6px; font-size:15px;">🚗 停車位置</button>
+    </div>
+    <input type="file" id="quickPhotoInput" accept="image/*" capture="environment" style="display:none;" />
+    <div id="detailQuickThumbs" style="display:none; gap:6px; margin-bottom:8px; overflow-x:auto;"></div>
+    <div id="detailQuickTags" style="display:none; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
     <div id="detailNameKana" style="display:none; font-size:12px; color:var(--sub); background:var(--bg); padding:2px 8px; border-radius:6px; margin-bottom:4px;"></div>
     <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
     <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
@@ -983,7 +996,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1012-C（登録シートの崩れ修正）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1019-A（軌跡・写真ボタン・タグ）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1188,6 +1201,12 @@
       <button class="btn btn-secondary" id="exportDataBtn">📤 書き出す</button>
       <button class="btn btn-secondary" id="importDataBtn">📥 読み込む</button>
     </div>
+
+    <label class="field-label">注意タグの並び順</label>
+    <details style="margin-bottom:16px; border:1px solid var(--line); border-radius:10px; padding:0 12px;">
+      <summary style="padding:11px 0; font-size:13px; font-weight:700; cursor:pointer;">▲▼ で並びを入れ替える（上ほど先頭に出ます）</summary>
+      <div id="tagOrderList" style="padding-bottom:8px;"></div>
+    </details>
 
     <label class="field-label">住所・部屋番号の整理</label>
     <p style="font-size:11px; color:var(--sub); margin-top:-4px; margin-bottom:8px; line-height:1.6;">
@@ -1582,6 +1601,8 @@ const NOTE_TAGS = [
   { id:'can_turn',     emoji:'🔄', label:'転回可能',       group:'car' },
   { id:'back_in',      emoji:'↩️', label:'バックで進入',   group:'car' },
   // 🏠 客先の情報
+  { id:'signless',     emoji:'✍️', label:'サインレス',       group:'customer' },
+  { id:'no_stopper',   emoji:'🚪', label:'ドアストッパー不要', group:'customer' },
   { id:'elderly',      emoji:'👴', label:'高齢者',         group:'customer' },
   { id:'daytime_out',  emoji:'☀️', label:'日中不在がち',   group:'customer' },
   { id:'autolock',     emoji:'🔐', label:'オートロック',   group:'customer' },
@@ -1600,6 +1621,63 @@ const NOTE_TAG_GROUPS = [
   { id:'customer', label:'🏠 客先の情報' },
   { id:'other',    label:'📌 その他' },
 ];
+// ---------- タグの並び順（自分で入れ替えられる） ----------
+// グループ内の並びだけを入れ替える。保存した並びに無い新しいタグは、そのグループの先頭に出す。
+const TAG_ORDER_KEY = 'delivery-tag-order-v1';
+function applyTagOrder(){
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(TAG_ORDER_KEY) || '[]'); } catch (e) { saved = []; }
+  if (!Array.isArray(saved) || saved.length === 0) return;
+  const groupOrder = NOTE_TAG_GROUPS.map(g => g.id);
+  const withIdx = NOTE_TAGS.map((t, i) => ({ t, i, k: saved.indexOf(t.id) }));
+  withIdx.sort((a, b) =>
+    (groupOrder.indexOf(a.t.group) - groupOrder.indexOf(b.t.group)) || (a.k - b.k) || (a.i - b.i));
+  NOTE_TAGS.splice(0, NOTE_TAGS.length, ...withIdx.map(x => x.t));
+}
+function saveTagOrder(){
+  try { localStorage.setItem(TAG_ORDER_KEY, JSON.stringify(NOTE_TAGS.map(t => t.id))); } catch (e) {}
+}
+function moveNoteTag(id, delta){
+  const idx = NOTE_TAGS.findIndex(t => t.id === id);
+  if (idx === -1) return;
+  const group = NOTE_TAGS[idx].group;
+  let j = idx + delta;
+  while (j >= 0 && j < NOTE_TAGS.length && NOTE_TAGS[j].group !== group) j += delta;
+  if (j < 0 || j >= NOTE_TAGS.length) return;
+  const tmp = NOTE_TAGS[idx]; NOTE_TAGS[idx] = NOTE_TAGS[j]; NOTE_TAGS[j] = tmp;
+  saveTagOrder();
+  buildNoteTagsUI();
+  setPendingTags(pendingTags);
+  renderTagOrderEditor();
+}
+function renderTagOrderEditor(){
+  const box = document.getElementById('tagOrderList');
+  if (!box) return;
+  box.innerHTML = '';
+  NOTE_TAG_GROUPS.forEach(group => {
+    const tags = NOTE_TAGS.filter(t => t.group === group.id);
+    if (!tags.length) return;
+    const head = document.createElement('div');
+    head.textContent = group.label;
+    head.style.cssText = 'font-size:11px; color:var(--sub); font-weight:600; margin:10px 0 4px;';
+    box.appendChild(head);
+    tags.forEach((tag, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px 0;';
+      row.innerHTML = `<div style="flex:1; font-size:14px;">${tag.emoji} ${tag.label}</div>`;
+      [['▲', -1, i === 0], ['▼', 1, i === tags.length - 1]].forEach(([mark, delta, disabled]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = mark;
+        b.disabled = disabled;
+        b.style.cssText = 'width:44px; height:40px; border:1px solid var(--line); border-radius:8px; background:var(--paper); color:var(--ink); font-size:14px;' + (disabled ? ' opacity:.3;' : '');
+        b.addEventListener('click', () => moveNoteTag(tag.id, delta));
+        row.appendChild(b);
+      });
+      box.appendChild(row);
+    });
+  });
+}
 let pendingTags = [];
 function buildNoteTagsUI(){
   const wrap = document.getElementById('noteTagsWrap');
@@ -1788,7 +1866,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   loadUserName();
   initMap();
   buildStampBar();
+  applyTagOrder();
   buildNoteTagsUI();
+  renderTagOrderEditor();
   buildParkingCategoryPicker();
   await loadTraceGrid(); // 設定を反映する時点でヒートマップを描けるよう、先に読み込んでおく
   await loadTrail(); // 同様に、軌跡もトグルの反映前に読み込んでおく
@@ -2574,8 +2654,15 @@ let trailPoints = []; // { lat, lng, t, brk? }
 // 画面が非表示になったことを検知しておき、次に記録される1点に「区切り」の印を付けることで、
 // 実際にどれだけの時間・距離が空いたかに関係なく、そこで必ず線を切るようにする。
 let trailPendingBreak = false;
+let trailHiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) trailPendingBreak = true;
+  if (document.hidden) {
+    trailPendingBreak = true;
+    trailHiddenAt = Date.now();
+  } else if (trailHiddenAt && Date.now() - trailHiddenAt < 60 * 1000) {
+    // 写真撮影などで1分以内に戻ってきた場合は、移動の空白ではないので線を切らない
+    trailPendingBreak = false;
+  }
 });
 
 // ---------- 画面の自動ロックを防ぐ（Wake Lock） ----------
@@ -2742,6 +2829,27 @@ function lastKmTrailPoints(){
   }
   return result;
 }
+// 「直近2km」用：バックグラウンドから戻った直後は最新の1点に「区切り」の印が付くため、
+// 以前の方式（区切りで打ち切る）だと、戻った瞬間にそれまでの軌跡がすべて消えて見えていた。
+// 区切りをまたいで線でつなぐことはせず、区切りごとの線分を新しい方から集めて合計2km分を描く。
+// （古い記録を出し続けないよう、直近3時間以内の記録だけを対象にする）
+function lastKmTrailSegments(){
+  const since = Date.now() - 3 * 60 * 60 * 1000;
+  const segs = splitTrailSegments(trailPoints.filter(p => p.t >= since));
+  const out = [];
+  let total = 0;
+  for (let i = segs.length - 1; i >= 0 && total < TRAIL_KM_DISTANCE; i--) {
+    const seg = segs[i];
+    const kept = [seg[seg.length - 1]];
+    for (let j = seg.length - 1; j > 0; j--) {
+      total += distanceMeters(seg[j].lat, seg[j].lng, seg[j-1].lat, seg[j-1].lng);
+      kept.unshift(seg[j-1]);
+      if (total >= TRAIL_KM_DISTANCE) break;
+    }
+    if (kept.length >= 2) out.push(kept);
+  }
+  return out;
+}
 // 記録の途中で大きな時間の空き（＝画面を閉じていた間）があった場所で区切り、
 // 複数の線分に分けて描く。こうすることで、空白をまたいで直線で飛んで見えるのを防ぐ。
 function splitTrailSegments(pts){
@@ -2812,8 +2920,7 @@ function renderTrail(){
     renderTrailBatchLegend([]);
   }
   if (trailKmEnabled) {
-    const kmPts = lastKmTrailPoints();
-    splitTrailSegments(kmPts).forEach(seg => {
+    lastKmTrailSegments().forEach(seg => {
       L.polyline(seg.map(p => [p.lat, p.lng]),
         { color:'#F59E0B', weight:4, opacity:0.85, interactive:false }).addTo(myTrailLayer);
     });
@@ -4921,8 +5028,83 @@ function openDetailSheet(id){
   document.getElementById('detailTime').textContent =
     '登録日時：' + new Date(p.createdAt).toLocaleString('ja-JP') + '（登録者：' + (p.createdBy || '不明') + '）';
 
+  renderDetailQuickBar(p);
   openSheetOverlay('detailOverlay');
 }
+
+// 詳細を開いたらすぐ使える操作（写真・編集・停車位置・よく使うタグ）を一番上にまとめる。
+// 下までスクロールしなくても、1タップで撮影・保存まで進める。
+function renderDetailQuickBar(p){
+  document.getElementById('quickPhotoBtn').onclick = () => document.getElementById('quickPhotoInput').click();
+  document.getElementById('quickEditBtn').onclick = () => document.getElementById('editBtn').click();
+  const stopBtn = document.getElementById('quickStopBtn');
+  stopBtn.style.display = (p.type === 'delivery') ? 'block' : 'none';
+  stopBtn.onclick = () => document.getElementById('editStopPositionBtn').click();
+
+  const thumbs = document.getElementById('detailQuickThumbs');
+  thumbs.innerHTML = '';
+  (p.photos || []).forEach(photo => {
+    const img = document.createElement('img');
+    img.src = photo;
+    img.style.cssText = 'height:64px; width:64px; object-fit:cover; border-radius:8px; flex-shrink:0;';
+    thumbs.appendChild(img);
+  });
+  thumbs.style.display = (p.photos && p.photos.length) ? 'flex' : 'none';
+
+  // 客先の情報タグのうち、先頭の4つはここでそのままON/OFFできる（並び順は設定で変えられる）
+  const quickTags = document.getElementById('detailQuickTags');
+  quickTags.innerHTML = '';
+  if (p.type === 'delivery') {
+    NOTE_TAGS.filter(t => t.group === 'customer').slice(0, 4).forEach(tag => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'quick-tag-btn' + ((p.tags || []).includes(tag.id) ? ' selected' : '');
+      btn.textContent = `${tag.emoji} ${tag.label}`;
+      btn.addEventListener('click', async () => {
+        const cur = (p.tags || []).slice();
+        const i = cur.indexOf(tag.id);
+        if (i === -1) cur.push(tag.id); else cur.splice(i, 1);
+        p.tags = sortTagsByGroup(cur);
+        p.updatedAt = Date.now();
+        await savePoints();
+        openDetailSheet(p.id); // 下の注意点の表示も同じ内容に更新する
+      });
+      quickTags.appendChild(btn);
+    });
+  }
+  quickTags.style.display = quickTags.children.length ? 'flex' : 'none';
+}
+// 撮影した写真は切り抜き画面を挟まず、縮小してそのまま保存する
+document.getElementById('quickPhotoInput').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  const p = points.find(pt => pt.id === selectedPointId);
+  if (!file || !p) return;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = url;
+    });
+    const scale = Math.min(1, 900 / img.naturalWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    p.photos = (p.photos || []).concat(canvas.toDataURL('image/jpeg', 0.6));
+    p.updatedAt = Date.now();
+    await savePoints();
+    renderAllMarkers(); // 📷バッジを反映
+    openDetailSheet(p.id);
+  } catch (err) {
+    console.error('quick photo error:', err);
+    alert('写真を保存できませんでした。もう一度お試しください。');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+});
 
 // ---------- コピー機能（貼り付けは誤操作防止のため用意しない。コピーのみ） ----------
 async function copyTextWithFeedback(text, btn){
