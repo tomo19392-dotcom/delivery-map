@@ -127,7 +127,19 @@
   #header .count{ font-size:12px; color:var(--sub); }
 
   /* 地図 */
-  #map{ flex:1; position:relative; z-index:1; }
+  #mapWrap{ flex:1; min-height:0; position:relative; z-index:1; overflow:hidden; }
+  #map{ position:absolute; left:0; top:0; right:0; bottom:0; }
+  /* 進行方向を上にしている間：地図は回るが、ピンの文字や絵は逆に回して常に正立にする */
+  #map.head-up .leaflet-marker-icon > *:first-child{ rotate:var(--unrot,0deg); transform-origin:var(--ox,50%) var(--oy,50%); }
+  #map.head-up .leaflet-marker-icon > .stop-dir-icon,
+  #map.head-up .leaflet-marker-icon.rot-follow > *:first-child{ rotate:none; }
+  /* 回転中は地図の著作権表示も一緒に回ってしまうので、回らない同じ文言のものに差し替える */
+  #map.head-up .leaflet-control-container{ display:none; }
+  #mapAttrib{ position:absolute; right:0; bottom:0; max-width:100%; padding:1px 5px; font-size:9px; line-height:1.3;
+    background:rgba(255,255,255,.7); color:#333; z-index:400; pointer-events:none; }
+  #compassBtn{ display:block; padding:0; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+    border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.25); line-height:0; }
+  #compassBtn.dial{ border-radius:50%; }
 
   /* ---------- 画面の四隅に、ボタン類を自動で重ならないよう積む仕組み ----------
      position:fixedの数値を個別に決め打ちすると、機種やボタンの数によって
@@ -521,7 +533,7 @@
       <button type="button" id="batchSplitNoBtn" style="background:rgba(255,255,255,.3); color:#fff; border:none; border-radius:10px; padding:8px 14px; font-size:13px; font-weight:600;">いいえ</button>
     </div>
   </div>
-  <div id="map"></div>
+  <div id="mapWrap"><div id="map"></div><div id="mapAttrib" style="display:none;"></div></div>
 
   <!-- 停車位置・向きを地図でドラッグして決める時に出す操作バー -->
   <div id="stopEditBar" style="display:none; position:fixed; left:12px; right:12px; bottom:16px; z-index:2500;
@@ -584,6 +596,7 @@
     <div id="trailBatchLegendList" style="display:flex; flex-direction:column; gap:2px;"></div>
   </div>
 </div>
+<button type="button" id="compassBtn" title="タップで「北が上」⇄「進行方向が上」を切り替え" aria-label="方位"></button>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
 <div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
   <span id="traceRecDot" title="足跡の記録状況" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6b7280; flex-shrink:0; transition:background .3s;"></span>
@@ -996,7 +1009,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1019-B（軌跡の飛び対策）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1021-A（地図回転・試験）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1799,6 +1812,7 @@ function applyLayoutPositions(){
   placeInCorner(document.getElementById('offlineStatus'), 'bottom-right');
   placeInCorner(document.getElementById('zoomStatus'), 'bottom-right');
   placeInCorner(document.getElementById('utilityBar'), 'top-right');
+  { const cb = document.getElementById('compassBtn'); const tr = CORNER_ELS['top-right']; if (cb && tr) tr.insertBefore(cb, tr.firstChild); }
   // 設定で選べるもの
   placeInCorner(document.getElementById('zoomBar'), zoomBarPosition);
   placeInCorner(document.getElementById('modeBar'), modeBarPosition);
@@ -1985,6 +1999,150 @@ function saveCurrentMapView(){
   } catch (e) { /* 保存に失敗しても致命的ではないので無視する */ }
 }
 
+// ---------- 進行方向を上にする（地図の回転・試験機能） ----------
+// ライセンスの制約があるプラグインは使わず、地図の入れ物をCSSで回転させる方式。
+// Leafletは「地図は回らない」前提で座標を計算しているため、
+//  ・タップ位置 ・ドラッグの移動量 ・ピンチ操作の位置
+// を回転分だけ戻して計算するようにLeaflet側の関数を差し替えている。
+// 既定はOFF（従来どおり北が上）。方位アイコンをタップで切り替え、いつでも元に戻せる。
+const HEADUP_KEY = 'delivery-headup-v1';
+let headUpEnabled = false;
+let mapRotDeg = 0; // 地図の入れ物のCSS回転角（時計回りが正）。進行方向がhなら -h
+function unrotXY(dx, dy){
+  const t = mapRotDeg * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t);
+  return { x: c*dx + sn*dy, y: -sn*dx + c*dy };
+}
+(function patchLeafletForRotation(){
+  const origMouse = L.Map.prototype.mouseEventToContainerPoint;
+  L.Map.prototype.mouseEventToContainerPoint = function(e){
+    if (!headUpEnabled) return origMouse.call(this, e);
+    const el = this._container, r = el.getBoundingClientRect();
+    const v = unrotXY(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+    return L.point(v.x + el.clientWidth / 2, v.y + el.clientHeight / 2);
+  };
+  const origDown = L.Draggable.prototype._onDown;
+  L.Draggable.prototype._onDown = function(e){
+    origDown.call(this, e);
+    if (headUpEnabled && this._parentScale) this._parentScale = { x:1, y:1 }; // 回転した入れ物の見かけの拡大率は使わない
+  };
+  const origMove = L.Draggable.prototype._onMove;
+  L.Draggable.prototype._onMove = function(e){
+    if (!headUpEnabled || !this._startPoint || (e.touches && e.touches.length > 1)) return origMove.call(this, e);
+    const t = (e.touches && e.touches.length === 1) ? e.touches[0] : e;
+    const v = unrotXY(t.clientX - this._startPoint.x, t.clientY - this._startPoint.y);
+    const fake = {
+      touches: [{ clientX: this._startPoint.x + v.x, clientY: this._startPoint.y + v.y }],
+      target: e.target, srcElement: e.srcElement, type: e.type,
+      preventDefault(){ if (e.preventDefault) e.preventDefault(); }
+    };
+    return origMove.call(this, fake);
+  };
+  // ピンの「先端」を中心に逆回転させるため、アイコンの基準点を控えておく
+  const origInitIcon = L.Marker.prototype._initIcon;
+  L.Marker.prototype._initIcon = function(){
+    origInitIcon.call(this);
+    const el = this._icon;
+    if (el) {
+      el.style.setProperty('--ox', (-(parseFloat(el.style.marginLeft) || 0)) + 'px');
+      el.style.setProperty('--oy', (-(parseFloat(el.style.marginTop) || 0)) + 'px');
+    }
+  };
+})();
+
+function renderCompass(){
+  const btn = document.getElementById('compassBtn');
+  if (!btn) return;
+  if (!headUpEnabled) {
+    btn.classList.remove('dial');
+    btn.innerHTML = `<svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true">
+      <path d="M30 3 L36 20 L30 16 L24 20Z" fill="#E8862E"/>
+      <g font-size="11" font-weight="700" fill="currentColor" text-anchor="middle"><text x="12" y="19">西</text><text x="48" y="19">東</text></g></svg>`;
+    btn.title = '北が上（タップで「進行方向が上」に切り替え）';
+  } else {
+    btn.classList.add('dial');
+    btn.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+      <g transform="rotate(${mapRotDeg} 22 22)">
+        <path d="M22 3 L28 20 L22 16 L16 20Z" fill="#E8862E"/>
+        <g font-size="10" font-weight="700" fill="currentColor" text-anchor="middle"><text x="7" y="27">西</text><text x="37" y="27">東</text><text x="22" y="40">南</text></g>
+      </g></svg>`;
+    btn.title = '進行方向が上（タップで「北が上」に戻す）';
+  }
+}
+function setMapRotation(deg){
+  mapRotDeg = deg;
+  const el = document.getElementById('map');
+  if (!el) return;
+  el.style.transform = headUpEnabled ? `rotate(${deg}deg)` : '';
+  if (headUpEnabled) el.style.setProperty('--unrot', (-deg) + 'deg'); else el.style.removeProperty('--unrot');
+  renderCompass();
+}
+// 回転しても画面の四隅まで地図が届くよう、入れ物を画面の対角線の長さの正方形にして中央に置く
+function applyMapRotationLayout(){
+  const wrap = document.getElementById('mapWrap'), el = document.getElementById('map');
+  if (!wrap || !el) return;
+  if (!headUpEnabled) {
+    ['left','top','right','bottom','width','height'].forEach(k => { el.style[k] = ''; });
+    el.classList.remove('head-up');
+    setMapRotation(0);
+  } else {
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    const D = Math.ceil(Math.hypot(W, H)) + 2;
+    el.style.left = ((W - D) / 2) + 'px'; el.style.top = ((H - D) / 2) + 'px';
+    el.style.right = 'auto'; el.style.bottom = 'auto';
+    el.style.width = D + 'px'; el.style.height = D + 'px';
+    el.classList.add('head-up');
+    setMapRotation(mapRotDeg);
+  }
+  const at = document.getElementById('mapAttrib');
+  if (at) { at.innerHTML = TILE_OPTIONS.attribution; at.style.display = headUpEnabled ? 'block' : 'none'; }
+  if (typeof map !== 'undefined' && map) map.invalidateSize({ animate:false });
+}
+let headUpAnimId = null;
+function rotateMapTo(targetDeg){
+  if (headUpAnimId) cancelAnimationFrame(headUpAnimId);
+  const start = mapRotDeg;
+  const diff = ((targetDeg - start) % 360 + 540) % 360 - 180; // 近い回り方を選ぶ
+  const t0 = performance.now(), DUR = 300;
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / DUR);
+    setMapRotation(start + diff * (1 - Math.pow(1 - k, 3)));
+    headUpAnimId = (k < 1 && headUpEnabled) ? requestAnimationFrame(step) : null;
+  };
+  headUpAnimId = requestAnimationFrame(step);
+}
+// 位置が更新されるたびに呼ぶ。止まっている間（速度1m/s未満）は向きが不安定なので回さない
+function updateHeadUpFromHeading(speed){
+  if (!headUpEnabled || myHeading === null) return;
+  if (typeof speed === 'number' && speed < 1) return;
+  const target = -myHeading;
+  const diff = ((target - mapRotDeg) % 360 + 540) % 360 - 180;
+  if (Math.abs(diff) < 3) return;
+  rotateMapTo(mapRotDeg + diff);
+}
+function setHeadUp(on){
+  headUpEnabled = on;
+  try { localStorage.setItem(HEADUP_KEY, on ? '1' : '0'); } catch (e) {}
+  if (headUpAnimId) { cancelAnimationFrame(headUpAnimId); headUpAnimId = null; }
+  mapRotDeg = (on && myHeading !== null) ? -myHeading : 0;
+  applyMapRotationLayout();
+  if (on && myMarker) { // 進行方向を上にする時は、自分の位置が中心に来る追従も一緒に始める
+    map.setView(myMarker.getLatLng(), map.getZoom(), { animate:false });
+    setFollowMyLocation(true);
+  }
+  renderCompass();
+}
+function initHeadUp(){
+  const btn = document.getElementById('compassBtn');
+  if (btn) btn.addEventListener('click', () => setHeadUp(!headUpEnabled));
+  const wrap = document.getElementById('mapWrap');
+  if (wrap && 'ResizeObserver' in window) new ResizeObserver(() => { if (headUpEnabled) applyMapRotationLayout(); }).observe(wrap);
+  let saved = false;
+  try { saved = localStorage.getItem(HEADUP_KEY) === '1'; } catch (e) {}
+  headUpEnabled = saved;
+  applyMapRotationLayout();
+  renderCompass();
+}
+
 function initMap(){
   // ・zoomSnap:0 → 指を離したときに「区切りの良い拡大率」へ自動で吸着させない
   // ・bounceAtZoomLimits:false → 拡大の上限(maxZoom)に達したとき、指を離すと
@@ -1996,6 +2154,7 @@ function initMap(){
     bounceAtZoomLimits:false
   }).setView(getLastMapView().center, getLastMapView().zoom); // 前回見ていた場所（無ければ東京駅）を初期位置にする
   new OfflineTileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+  initHeadUp();
 
   // 何らかの理由で画面が再読み込みされても、直前に見ていた場所に戻れるよう、
   // 地図を動かすたびに表示位置を保存しておく（頻繁に書き込みすぎないよう間引く）
@@ -2017,6 +2176,7 @@ function initMap(){
   // その裏にある地図にまでタップが伝わって「新しい地点の登録」が誤って開かないようにする
   [
     document.getElementById('recenterBtn'),
+    document.getElementById('compassBtn'),
     document.getElementById('legend'),
     document.getElementById('hint'),
     document.getElementById('gpsStatus'),
@@ -2116,6 +2276,7 @@ function initMap(){
 
   function eventToLatLng(evt){
     const src = (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
+    if (headUpEnabled) return map.containerPointToLatLng(map.mouseEventToContainerPoint(src));
     const rect = mapContainer.getBoundingClientRect();
     const point = L.point(src.clientX - rect.left, src.clientY - rect.top);
     return map.containerPointToLatLng(point);
@@ -2125,6 +2286,7 @@ function initMap(){
       : (evt.touches && evt.touches[0]) ? evt.touches[0] : evt;
     // 画面全体の座標(clientX/Y)のままだと、地図の上にあるヘッダー分だけ
     // 実際の地図コンテナの位置とズレる。eventToLatLngと同じくコンテナ基準に補正する。
+    if (headUpEnabled) { const q = map.mouseEventToContainerPoint(src); return { x:q.x, y:q.y }; }
     const rect = mapContainer.getBoundingClientRect();
     return { x: src.clientX - rect.left, y: src.clientY - rect.top };
   }
@@ -2174,7 +2336,8 @@ function initMap(){
       const anchor = map.latLngToContainerPoint(L.latLng(p.lat, p.lng));
       // ピンのアイコンは、実際の緯度経度（=先端の位置）より見た目の丸い部分が
       // 15pxほど上にあるため、判定もその位置に合わせてずらす
-      const visual = { x: anchor.x, y: anchor.y - 15 };
+      const off = headUpEnabled ? unrotXY(0, -15) : { x:0, y:-15 };
+      const visual = { x: anchor.x + off.x, y: anchor.y + off.y };
       if (Math.hypot(screenPoint.x - visual.x, screenPoint.y - visual.y) < 24) {
         return { type:'point', id:p.id };
       }
@@ -2511,7 +2674,7 @@ function buildMyMarkerIcon(){
       <div class="me-pulse"></div>
       <div class="me-dot"></div>
     </div>`;
-  return L.divIcon({ className:'', html, iconSize:[16,16], iconAnchor:[8,8] });
+  return L.divIcon({ className:'rot-follow', html, iconSize:[16,16], iconAnchor:[8,8] });
 }
 
 function placeMyMarker(latlng, nativeHeading){
@@ -3102,6 +3265,7 @@ function startWatchingMyLocation(){
       placeMyMarker(latlng, pos.coords.heading);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
+      updateHeadUpFromHeading(pos.coords.speed);
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
       handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
       trackBatchSplitCandidate(pos.coords.latitude, pos.coords.longitude, Date.now());
