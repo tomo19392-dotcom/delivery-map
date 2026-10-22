@@ -1011,7 +1011,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1022-A（停車位置の修正）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1022-B（建物の合体・部屋ページ）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -3654,7 +3654,12 @@ function addMarkerToMap(p){
     // 位置が変わったので、建物の輪郭も新しい位置で取得し直す
     p.buildingOutline = null;
     p.buildingOutlineChecked = false;
+    // 近くの別地点（同じ建物の候補）に寄せた場合は、移動操作と同じく統合するか確認する
+    const mergeTarget = findNearbyMergeCandidate(p, latlng);
+    if (mergeTarget && confirmMergeBuilding(mergeTarget)) mergePointIntoBuilding(p, mergeTarget);
     await savePoints();
+    // 合体した／しなかったに関わらず、ピンのまとまり（紫の件数ピン）を描き直して今の状態に合わせる
+    setTimeout(() => renderAllMarkers(), 0);
     if (p.name || p.nameKana) tryAttachBuildingOutline(p);
   });
   pointMarkerById[p.id] = marker;
@@ -3666,10 +3671,14 @@ function addMarkerToMap(p){
 // （開いた後は詳細画面の中で左右に切り替えられる）。
 function addGroupMarkerToMap(group){
   const anchor = group[0];
-  const openTarget = group.find(pt => pt.status !== 'done') || group[0];
+  // タップした時に最初に開くのは、未完了の中で一番新しく登録したもの
+  // （以前は一番古いものが開き、今登録したばかりの部屋に辿り着けなかった）
+  const livePool = group.filter(pt => pt.status !== 'done');
+  const openPool = livePool.length ? livePool : group;
+  const openTarget = openPool.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
   const isRouteOriginGroup = batchModeActive && group.some(pt => pt.id === batchOriginKey);
   // 名前が無ければ住所、それも無ければ「未登録」を出し、必ず何か表示されるようにする
-  const anchorLabel = anchor.name || anchor.nameKana || fullAddressOf(anchor) || '未登録';
+  const anchorLabel = openTarget.name || openTarget.nameKana || fullAddressOf(openTarget) || '未登録';
   const nameLabel = `<div class="pin-name-label">${escapeHtml(anchorLabel)} 他${group.length - 1}件</div>`;
   const originLabel = isRouteOriginGroup
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
@@ -4586,6 +4595,45 @@ async function tryAttachBuildingOutline(p){
   renderAllMarkers();
 }
 
+// ---------- 「同じ建物として統合」（登録ポイントを寄せた時の合体） ----------
+// 近く（BUILDING_GROUP_RADIUS_M以内）に同じ種別の別地点があり、かつまだ同じ建物としてまとまっていない時の相手を返す
+function findNearbyMergeCandidate(p, latlng){
+  const already = new Set(findBuildingSiblings(p).map(s => s.id));
+  let best = null, bestD = Infinity;
+  points.forEach(pt => {
+    if (pt.id === p.id || pt.type !== p.type || already.has(pt.id)) return;
+    const d = distanceMeters(pt.lat, pt.lng, latlng.lat, latlng.lng);
+    if (d <= BUILDING_GROUP_RADIUS_M && d < bestD) { best = pt; bestD = d; }
+  });
+  return best;
+}
+function confirmMergeBuilding(other){
+  const label = other.name || other.nameKana || '（名前未登録）';
+  return confirm(
+    `近くに「${label}」が登録されています。\n同じ建物として統合しますか？\n\n` +
+    `OK＝統合する（位置を「${label}」に合わせ、詳細画面を左右スワイプで切り替えられるようにします）\n` +
+    `キャンセル＝統合せず、そのままの位置に置く`
+  );
+}
+// 統合の実処理。同じ建物かどうかは「近い」＋「住所が似ている」で判定しているため、
+// 住所が空・表記違いのままだと、統合したつもりでも別々の扱いのままになる。
+// そこで住所をそろえ、「切り離し」の印も外して、確実にまとまるようにする。
+function mergePointIntoBuilding(p, other){
+  p.lat = other.lat;
+  p.lng = other.lng;
+  if (other.address) {
+    p.address = other.address; // 既存の建物の住所に合わせる
+  } else if (p.address) {
+    other.address = p.address; // 相手が住所未入力なら、こちらの住所を相手にも入れる
+    other.updatedAt = Date.now();
+  }
+  delete p.buildingGroupDetached;
+  delete other.buildingGroupDetached;
+  p.updatedAt = Date.now();
+  p.buildingOutline = null;
+  p.buildingOutlineChecked = false;
+}
+
 // 「この地点を移動する」→ 地図をタップした場所に、その地点を動かす。
 // 建物の枠がズレていた時の直しも兼ねて、位置が変わったら輪郭も取得し直す。
 async function movePointTo(id, latlng){
@@ -4597,30 +4645,13 @@ async function movePointTo(id, latlng){
   // 移動先が既存の別の地点（同じ種別）に近い場合、住所の表記ゆれなどで
   // 自動判定では同じ建物とまとめられなかったケースを、ここで手動でも統合できるようにする。
   // 「毎回でも良い」とのことなので、近くに何かあれば毎回必ず確認する。
-  const nearbyOther = points.find(pt =>
-    pt.id !== p.id && pt.type === p.type &&
-    distanceMeters(pt.lat, pt.lng, latlng.lat, latlng.lng) <= BUILDING_GROUP_RADIUS_M
-  );
-  if (nearbyOther) {
-    const label = nearbyOther.name || nearbyOther.nameKana || '（名前未登録）';
-    const merge = confirm(
-      `近くに「${label}」が登録されています。\n同じ建物として統合しますか？\n\n` +
-      `OK＝統合する（住所・位置を「${label}」に合わせ、詳細画面を左右スワイプで切り替えられるようにします）\n` +
-      `キャンセル＝統合せず、タップした位置にそのまま移動する`
-    );
-    if (merge) {
-      p.lat = nearbyOther.lat;
-      p.lng = nearbyOther.lng;
-      p.address = nearbyOther.address || p.address;
-      delete p.buildingGroupDetached; // 以前「切り離す」を選んでいても、統合し直す時はそれを解除する
-      p.updatedAt = Date.now();
-      p.buildingOutline = null;
-      p.buildingOutlineChecked = false;
-      await savePoints();
-      renderAllMarkers();
-      setTimeout(() => openDetailSheet(id), 150);
-      return;
-    }
+  const nearbyOther = findNearbyMergeCandidate(p, latlng);
+  if (nearbyOther && confirmMergeBuilding(nearbyOther)) {
+    mergePointIntoBuilding(p, nearbyOther);
+    await savePoints();
+    renderAllMarkers();
+    setTimeout(() => openDetailSheet(id), 150);
+    return;
   }
 
   p.lat = latlng.lat;
@@ -6853,6 +6884,9 @@ async function addRoomFromAnchor(anchor){
   }
   const room = await askRoomNumber(anchor);
   if (room === null) return;
+  // 以前「切り離し」をした部屋に追加しても、新しい部屋とまとまらず「ページ」にならないため、
+  // 部屋を追加する操作をした時点で、その部屋の切り離しは解除する
+  if (anchor.buildingGroupDetached) { delete anchor.buildingGroupDetached; anchor.updatedAt = Date.now(); }
   const dup = findBuildingSiblings(anchor).find(pt => room && (pt.roomNumber || '') === room);
   if (dup && !confirm(`「${room}」は既に登録されています。もう1件追加しますか？`)) return;
   const point = {
