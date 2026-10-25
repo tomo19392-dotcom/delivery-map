@@ -139,6 +139,13 @@
     background:rgba(255,255,255,.7); color:#333; z-index:400; pointer-events:none; }
   /* 停車位置の編集中は、すでに保存済みの🚗・矢印を薄くして、動かしているものと区別する */
   #map.stop-editing .stop-car-icon, #map.stop-editing .stop-dir-icon{ opacity:.25; }
+  #areaModeBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:99px;
+    padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.25); white-space:nowrap; }
+  .area-bubble{ border-radius:50%; color:#fff; text-align:center; border:3px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.35);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.15; cursor:pointer; }
+  .area-bubble span{ font-size:12px; font-weight:700; max-width:92%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .area-bubble b{ font-size:18px; }
+  .area-bubble small{ font-size:10px; opacity:.95; }
   #compassBtn{ display:block; padding:0; border:1px solid var(--line); background:var(--paper); color:var(--ink);
     border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.25); line-height:0; }
   #compassBtn.dial{ border-radius:50%; }
@@ -598,6 +605,7 @@
     <div id="trailBatchLegendList" style="display:flex; flex-direction:column; gap:2px;"></div>
   </div>
 </div>
+<button type="button" id="areaModeBtn" title="地点の表示方法（自動／ピン／エリア）"></button>
 <button type="button" id="compassBtn" title="タップで「北が上」⇄「進行方向が上」を切り替え" aria-label="方位"></button>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
 <div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
@@ -1011,7 +1019,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1022-B（建物の合体・部屋ページ）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1025-B（部屋追加の流れ・エリア表示）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1530,7 +1538,7 @@ const SETTINGS_KEY = 'delivery-draw-settings-v1';
 let points = [];          // {id, lat, lng, type, memo, photo, attention, createdAt}
 let drawings = [];        // {id, color, points:[[lat,lng],...], createdAt}
 let stamps = [];          // {id, type, lat, lng, rotation, createdAt}
-let map, myMarker, markersLayer, buildingOutlineLayer, stopMarkersLayer, traceHeatmapLayer, drawingsLayer, stampsLayer, myTrailLayer;
+let map, myMarker, markersLayer, buildingOutlineLayer, stopMarkersLayer, traceHeatmapLayer, drawingsLayer, stampsLayer, myTrailLayer, areaLayer;
 let originMarker = null; // 「配達先を組む」で出発地点が現在地の時だけ出す、目印用のマーカー
 let pendingLatLng = null;
 let pendingType = null;
@@ -1809,6 +1817,7 @@ function placeInCorner(el, corner){
 function applyLayoutPositions(){
   // 常に固定の隅に置くもの
   placeInCorner(document.getElementById('legend'), 'bottom-left');
+  placeInCorner(document.getElementById('areaModeBtn'), 'bottom-left'); // 凡例のすぐ上に積まれる
   placeInCorner(document.getElementById('recenterBtn'), 'bottom-right'); // 一番下（隅に近い側）
   placeInCorner(document.getElementById('gpsStatus'), 'bottom-right');
   placeInCorner(document.getElementById('offlineStatus'), 'bottom-right');
@@ -2051,10 +2060,21 @@ function unrotXY(dx, dy){
   };
 })();
 
+let headUpAuto = false; // true＝進行方向が上（走行中に自動で回る）。falseで回転レイアウトだけ有効なら「手で回した状態」
+function normDeg(d){ return ((d % 360) + 540) % 360 - 180; } // -180〜180に正規化
+function showMiniToast(text){
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = 'position:fixed; left:50%; bottom:90px; transform:translateX(-50%); z-index:5000; max-width:86%;'
+    + 'background:rgba(30,30,30,.92); color:#fff; font-size:13px; font-weight:600; padding:9px 14px; border-radius:99px; text-align:center;';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+function isNorthUpState(){ return !headUpEnabled || (!headUpAuto && Math.abs(normDeg(mapRotDeg)) < 1); }
 function renderCompass(){
   const btn = document.getElementById('compassBtn');
   if (!btn) return;
-  if (!headUpEnabled) {
+  if (isNorthUpState()) {
     btn.classList.remove('dial');
     btn.innerHTML = `<svg width="60" height="28" viewBox="0 0 60 28" aria-hidden="true">
       <path d="M30 3 L36 20 L30 16 L24 20Z" fill="#E8862E"/>
@@ -2067,7 +2087,7 @@ function renderCompass(){
         <path d="M22 3 L28 20 L22 16 L16 20Z" fill="#E8862E"/>
         <g font-size="10" font-weight="700" fill="currentColor" text-anchor="middle"><text x="7" y="27">西</text><text x="37" y="27">東</text><text x="22" y="40">南</text></g>
       </g></svg>`;
-    btn.title = '進行方向が上（タップで「北が上」に戻す）';
+    btn.title = headUpAuto ? '進行方向が上（タップで北が上に戻す）' : '手で回した状態（タップで北が上に戻す）';
   }
 }
 function setMapRotation(deg){
@@ -2100,30 +2120,139 @@ function applyMapRotationLayout(){
   if (typeof map !== 'undefined' && map) map.invalidateSize({ animate:false });
 }
 let headUpAnimId = null;
-function rotateMapTo(targetDeg){
+function rotateMapTo(targetDeg, onDone){
   if (headUpAnimId) cancelAnimationFrame(headUpAnimId);
   const start = mapRotDeg;
-  const diff = ((targetDeg - start) % 360 + 540) % 360 - 180; // 近い回り方を選ぶ
+  const diff = normDeg(targetDeg - start); // 近い回り方を選ぶ
   const t0 = performance.now(), DUR = 300;
   const step = (now) => {
     const k = Math.min(1, (now - t0) / DUR);
     setMapRotation(start + diff * (1 - Math.pow(1 - k, 3)));
-    headUpAnimId = (k < 1 && headUpEnabled) ? requestAnimationFrame(step) : null;
+    if (k < 1 && headUpEnabled) { headUpAnimId = requestAnimationFrame(step); }
+    else { headUpAnimId = null; if (onDone) onDone(); }
   };
   headUpAnimId = requestAnimationFrame(step);
 }
-// 位置が更新されるたびに呼ぶ。止まっている間（速度1m/s未満）は向きが不安定なので回さない
-function updateHeadUpFromHeading(speed){
-  if (!headUpEnabled || myHeading === null) return;
-  if (typeof stopEditState !== 'undefined' && stopEditState) return; // 停車位置の編集中は回さない
-  if (typeof speed === 'number' && speed < 1) return;
-  const target = -myHeading;
-  const diff = ((target - mapRotDeg) % 360 + 540) % 360 - 180;
-  if (Math.abs(diff) < 3) return;
+
+// ---------- 「走っているか」の判定（止まっている間に地図がくるくる回らないようにする） ----------
+// GPSは止まっていても数mはふらつき、その動きから出した「向き」は毎回バラバラになる。
+// そのため、①精度の悪い測位は使わない ②少し前の位置からの移動量が誤差を超えた時だけ「動いた」とみなす
+// ③「動いた」の判定は連続2回、「止まった」の判定も連続2回で切り替える ④向きは走っている間だけ更新する、としている。
+const MOVE_ON_SPEED = 3;        // m/s（時速約11km）以上で「走っている」
+const MOVE_OFF_SPEED = 1.2;     // m/s 未満で「止まった」
+const MOTION_MAX_ACC_M = 35;    // これより精度が悪い測位は判定に使わない
+const HEADING_STEP_M = 10;      // 走っている間、これだけ進むごとに向きを1回更新する
+let motion = { buf: [], moving: false, fastN: 0, slowN: 0, ref: null };
+function updateMotion(lat, lng, t, acc, nativeSpeed, nativeHeading){
+  const out = { moving: motion.moving, heading: null };
+  if (typeof acc === 'number' && acc > MOTION_MAX_ACC_M) return out;
+  motion.buf.push({ lat, lng, t });
+  while (motion.buf.length && t - motion.buf[0].t > 8000) motion.buf.shift();
+  let speed = null;
+  if (typeof nativeSpeed === 'number' && isFinite(nativeSpeed)) {
+    speed = nativeSpeed; // 端末が測った速度（ドップラー）が使えるならそれを最優先
+  } else {
+    // 速度が取れない端末は、4秒以上前の位置からの移動量で判断する。誤差の範囲内なら「動いていない」
+    let base = null;
+    for (let i = motion.buf.length - 1; i >= 0; i--) { if (t - motion.buf[i].t >= 4000) { base = motion.buf[i]; break; } }
+    if (base) {
+      const d = distanceMeters(base.lat, base.lng, lat, lng);
+      const floor = Math.max(12, (acc || 0) * 1.5);
+      speed = d <= floor ? 0 : d / ((t - base.t) / 1000);
+    }
+  }
+  if (speed === null) return out;
+  if (speed >= MOVE_ON_SPEED) { motion.fastN++; motion.slowN = 0; }
+  else if (speed < MOVE_OFF_SPEED) { motion.slowN++; motion.fastN = 0; }
+  if (!motion.moving && motion.fastN >= 2) { motion.moving = true; motion.ref = { lat, lng }; }
+  if (motion.moving && motion.slowN >= 2) { motion.moving = false; motion.ref = null; }
+  out.moving = motion.moving;
+  if (motion.moving) {
+    if (typeof nativeHeading === 'number' && isFinite(nativeHeading) && typeof nativeSpeed === 'number') {
+      out.heading = nativeHeading;
+    } else if (motion.ref) {
+      if (distanceMeters(motion.ref.lat, motion.ref.lng, lat, lng) >= HEADING_STEP_M) {
+        out.heading = bearingDegrees(motion.ref.lat, motion.ref.lng, lat, lng);
+        motion.ref = { lat, lng };
+      }
+    }
+  }
+  return out;
+}
+// 指で操作している間・操作の直後・画面を開いている間は、地図を勝手に回さない
+let touchesDown = 0, lastTouchEndAt = 0;
+['touchstart','touchend','touchcancel'].forEach(type => {
+  document.addEventListener(type, (e) => {
+    touchesDown = e.touches ? e.touches.length : 0;
+    if (type !== 'touchstart') lastTouchEndAt = Date.now();
+  }, { capture:true, passive:true });
+});
+function userBusy(){
+  return touchesDown > 0 || (Date.now() - lastTouchEndAt) < 4000
+    || !!document.querySelector('.sheet-overlay.open') || (typeof stopEditState !== 'undefined' && !!stopEditState);
+}
+let rotSmoothHeading = null;
+function updateAutoRotation(m){
+  if (!headUpEnabled || !headUpAuto) return;
+  if (!m.moving || m.heading === null) return; // 走っていない／新しい向きが無い時は回さない
+  rotSmoothHeading = (rotSmoothHeading === null) ? m.heading
+    : rotSmoothHeading + Math.max(-45, Math.min(45, normDeg(m.heading - rotSmoothHeading))) * 0.5;
+  if (userBusy()) return;
+  const diff = normDeg(-rotSmoothHeading - mapRotDeg);
+  if (Math.abs(diff) < 8) return; // 少しの向きの違いでは回さない
   rotateMapTo(mapRotDeg + diff);
 }
+
+// ---------- 2本指で地図を回す ----------
+let rotGesture = null;
+function pinchAngle(e){
+  const a = e.touches[0], b = e.touches[1];
+  return Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI;
+}
+document.addEventListener('touchstart', (e) => {
+  if (typeof map === 'undefined' || !map || !e.touches || e.touches.length !== 2) return;
+  const wrap = document.getElementById('mapWrap');
+  if (!wrap || !wrap.contains(e.target)) return;
+  if (typeof stopEditState !== 'undefined' && stopEditState) return;
+  if (!headUpEnabled) { // 回転用のレイアウトに切り替えてから、地図の拡大・移動の処理に渡す
+    headUpEnabled = true; headUpAuto = false; mapRotDeg = 0;
+    applyMapRotationLayout();
+  }
+  rotGesture = { ang: pinchAngle(e), startRot: mapRotDeg, twisting: false };
+}, { capture:true, passive:true });
+document.addEventListener('touchmove', (e) => {
+  if (!rotGesture || !e.touches || e.touches.length !== 2) return;
+  const d = normDeg(pinchAngle(e) - rotGesture.ang);
+  if (!rotGesture.twisting) {
+    if (Math.abs(d) < 8) return; // ただの拡大・縮小では回さない（ひねりが8度を超えたら回転開始）
+    rotGesture.twisting = true;
+    rotGesture.startRot = mapRotDeg;
+    headUpAuto = false; // 手で回し始めたら、自動回転は止める
+    if (headUpAnimId) { cancelAnimationFrame(headUpAnimId); headUpAnimId = null; }
+  }
+  setMapRotation(rotGesture.startRot + d);
+}, { capture:true, passive:true });
+['touchend','touchcancel'].forEach(type => document.addEventListener(type, (e) => {
+  if (!rotGesture || (e.touches && e.touches.length >= 2)) return;
+  const wasTwisting = rotGesture.twisting;
+  rotGesture = null;
+  if (!wasTwisting) return;
+  mapRotDeg = normDeg(mapRotDeg);
+  setMapRotation(mapRotDeg);
+  if (Math.abs(mapRotDeg) < 6) rotateMapTo(0); // ほぼ北向きなら、ぴたっと北に合わせる
+}, { capture:true, passive:true }));
+// 回転を使わなくなったら（北向きのまま少し経ったら）、通常のレイアウトに戻す
+setInterval(() => {
+  if (headUpEnabled && !headUpAuto && !rotGesture && touchesDown === 0 && Math.abs(normDeg(mapRotDeg)) < 1) {
+    headUpEnabled = false; mapRotDeg = 0;
+    applyMapRotationLayout();
+  }
+}, 3000);
+
 function setHeadUp(on){
   headUpEnabled = on;
+  headUpAuto = on;
+  rotSmoothHeading = null;
   try { localStorage.setItem(HEADUP_KEY, on ? '1' : '0'); } catch (e) {}
   if (headUpAnimId) { cancelAnimationFrame(headUpAnimId); headUpAnimId = null; }
   mapRotDeg = (on && myHeading !== null) ? -myHeading : 0;
@@ -2134,14 +2263,25 @@ function setHeadUp(on){
   }
   renderCompass();
 }
+function resetToNorth(){
+  headUpAuto = false;
+  try { localStorage.setItem(HEADUP_KEY, '0'); } catch (e) {}
+  const done = () => { headUpEnabled = false; mapRotDeg = 0; applyMapRotationLayout(); renderCompass(); };
+  if (!headUpEnabled || Math.abs(normDeg(mapRotDeg)) < 1) { done(); return; }
+  rotateMapTo(0, done);
+}
+function onCompassTap(){
+  if (isNorthUpState()) { setHeadUp(true); showMiniToast('🧭 進行方向が上（走っている間だけ向きが変わります）'); }
+  else { resetToNorth(); showMiniToast('🧭 北が上に戻しました'); }
+}
 function initHeadUp(){
   const btn = document.getElementById('compassBtn');
-  if (btn) btn.addEventListener('click', () => setHeadUp(!headUpEnabled));
+  if (btn) btn.addEventListener('click', onCompassTap);
   const wrap = document.getElementById('mapWrap');
   if (wrap && 'ResizeObserver' in window) new ResizeObserver(() => { if (headUpEnabled) applyMapRotationLayout(); }).observe(wrap);
   let saved = false;
   try { saved = localStorage.getItem(HEADUP_KEY) === '1'; } catch (e) {}
-  headUpEnabled = saved;
+  headUpEnabled = saved; headUpAuto = saved;
   applyMapRotationLayout();
   renderCompass();
 }
@@ -2158,6 +2298,7 @@ function initMap(){
   }).setView(getLastMapView().center, getLastMapView().zoom); // 前回見ていた場所（無ければ東京駅）を初期位置にする
   new OfflineTileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
   initHeadUp();
+  initAreaMode();
 
   // 何らかの理由で画面が再読み込みされても、直前に見ていた場所に戻れるよう、
   // 地図を動かすたびに表示位置を保存しておく（頻繁に書き込みすぎないよう間引く）
@@ -2168,6 +2309,7 @@ function initMap(){
   });
 
   markersLayer = L.layerGroup().addTo(map);
+  areaLayer = L.layerGroup().addTo(map); // 引いた時の「エリアのまとまり」の丸印
   buildingOutlineLayer = L.layerGroup().addTo(map); // 建物の輪郭（見つかった場合だけ描く）
   stopMarkersLayer = L.layerGroup().addTo(map); // 停車位置の🚗＋向きの矢印（ある程度拡大した時だけCSSで表示）
   traceHeatmapLayer = L.layerGroup().addTo(map); // 時間帯別の通りにくさの表示（見える化）
@@ -2180,6 +2322,7 @@ function initMap(){
   [
     document.getElementById('recenterBtn'),
     document.getElementById('compassBtn'),
+    document.getElementById('areaModeBtn'),
     document.getElementById('legend'),
     document.getElementById('hint'),
     document.getElementById('gpsStatus'),
@@ -2641,20 +2784,7 @@ let lastHeadingPoint = null; // 方角を計算するための直前の位置
 const HEADING_MIN_MOVE_M = 3; // これ未満の移動はGPSのブレとみなし、向きを更新しない
 
 function updateMyHeading(lat, lng, nativeHeading){
-  if (typeof nativeHeading === 'number' && !Number.isNaN(nativeHeading)) {
-    myHeading = nativeHeading;
-    lastHeadingPoint = { lat, lng };
-    return;
-  }
-  if (lastHeadingPoint) {
-    const distM = distanceMeters(lastHeadingPoint.lat, lastHeadingPoint.lng, lat, lng);
-    if (distM >= HEADING_MIN_MOVE_M) {
-      myHeading = bearingDegrees(lastHeadingPoint.lat, lastHeadingPoint.lng, lat, lng);
-      lastHeadingPoint = { lat, lng };
-    }
-  } else {
-    lastHeadingPoint = { lat, lng };
-  }
+  // 向きの更新は updateMotion（走っている間だけ）で行う。止まっている時のGPSのふらつきでは変えない。
 }
 
 function buildMyMarkerIcon(){
@@ -3265,10 +3395,12 @@ function startWatchingMyLocation(){
     (pos) => {
       const latlng = [pos.coords.latitude, pos.coords.longitude];
       const firstTime = !myMarker;
-      placeMyMarker(latlng, pos.coords.heading);
+      const motionNow = updateMotion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy, pos.coords.speed, pos.coords.heading);
+      if (motionNow.heading !== null) myHeading = motionNow.heading;
+      placeMyMarker(latlng, null);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
       else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
-      updateHeadUpFromHeading(pos.coords.speed);
+      updateAutoRotation(motionNow);
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
       handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
       trackBatchSplitCandidate(pos.coords.latitude, pos.coords.longitude, Date.now());
@@ -3450,13 +3582,170 @@ function findBuildingSiblings(p){
     .filter(pt => addressSimilarity(pt.address, p.address) >= ADDRESS_MATCH_THRESHOLD)
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 }
+// ---------- エリアのまとめ表示（引いた時は「北区」「内山下」のような丸印にする） ----------
+// 地図を引いて見ると地点のピンが多すぎて見づらいため、拡大率に合わせて
+//   区（または市）ごと → 町名ごと → 今までのピン、と自動で切り替える。
+// エリア名は、登録してある「住所の文字」から読み取る（住所が空欄の地点は「住所なし」にまとめる）。
+const AREA_KEY = 'delivery-area-mode-v1';
+let areaMode = 'auto';        // 'auto'（引くとエリア・寄るとピン） | 'pin'（いつもピン） | 'area'（いつもエリア）
+let areaBigCount = 'all';     // 丸の大きな数字：'all'（全件） | 'pending'（未完了）
+let areaZoomWard = 14;        // この拡大率より引いたら「区」ごと
+let areaZoomTown = 16;        // この拡大率より引いたら「町名」ごと（これ以上はピン）
+function loadAreaSettings(){
+  try {
+    const o = JSON.parse(localStorage.getItem(AREA_KEY) || '{}');
+    if (['auto','pin','area'].includes(o.mode)) areaMode = o.mode;
+    if (['all','pending'].includes(o.big)) areaBigCount = o.big;
+    if (typeof o.zw === 'number') areaZoomWard = o.zw;
+    if (typeof o.zt === 'number') areaZoomTown = o.zt;
+  } catch (e) {}
+}
+function saveAreaSettings(){
+  try { localStorage.setItem(AREA_KEY, JSON.stringify({ mode:areaMode, big:areaBigCount, zw:areaZoomWard, zt:areaZoomTown })); } catch (e) {}
+}
+// 住所の文字から「区（または市）」と「町名」を取り出す。読み取れなければnull
+const areaParseCache = new Map();
+function parseAreaFromAddress(addr){
+  if (!addr) return null;
+  if (areaParseCache.has(addr)) return areaParseCache.get(addr);
+  let s = String(addr).normalize('NFKC').replace(/〒?\d{3}-?\d{4}/g, '').replace(/日本/g, '').replace(/[\s,、，]/g, '');
+  s = s.replace(/^(?:北海道|東京都|(?:京都|大阪)府|[^\d市区町村郡]{2,3}県)/, ''); // 都道府県
+  s = s.replace(/^[^\d市区町村]{1,5}郡/, '');                                   // 郡
+  let city = '', big = null, rest = s, m;
+  if ((m = s.match(/^([^\d市区町村]{1,6}市)([^\d市区町村]{1,6}区)/))) { city = m[1]; big = m[2]; rest = s.slice(m[0].length); }  // 〇〇市〇〇区
+  else if ((m = s.match(/^([^\d市区町村]{1,6}区)/)))                    { big = m[1]; rest = s.slice(m[0].length); }               // 区から始まる
+  else if ((m = s.match(/^([^\d市区町村]{1,8}[市町村])/)))              { big = m[1]; rest = s.slice(m[0].length); }               // 区の無い市町村
+  let result = null;
+  if (big) {
+    const t = rest.match(/^([^\d\-ー丁番号]{1,10}?)(?:[〇一二三四五六七八九十]+丁目|\d|$)/);
+    const town = (t && t[1]) ? t[1] : '';
+    result = { wardKey: city + big, ward: big, townKey: city + big + '/' + town, town: town || (big + '（町名不明）') };
+  }
+  areaParseCache.set(addr, result);
+  return result;
+}
+function currentAreaLevel(){
+  if (!map || batchModeActive) return 'pin'; // 便を組んでいる間は、選んだ地点だけなのでピンのまま
+  if (areaMode === 'pin') return 'pin';
+  const z = map.getZoom();
+  if (z < areaZoomWard) return 'ward';
+  if (areaMode === 'area') return 'town';
+  return z < areaZoomTown ? 'town' : 'pin';
+}
+function renderAreaBubbles(visiblePoints, level){
+  areaLayer.clearLayers();
+  const groups = new Map();
+  visiblePoints.forEach(p => {
+    if (p.type !== 'delivery') return;
+    const a = parseAreaFromAddress(p.address);
+    const key = a ? (level === 'ward' ? a.wardKey : a.townKey) : '__none__';
+    const label = a ? (level === 'ward' ? a.ward : a.town) : '住所なし';
+    if (!groups.has(key)) groups.set(key, { label, pts: [] });
+    groups.get(key).pts.push(p);
+  });
+  groups.forEach(g => {
+    const total = g.pts.length;
+    const pending = g.pts.filter(p => p.status !== 'done').length;
+    const lat = g.pts.reduce((sum, p) => sum + p.lat, 0) / total;
+    const lng = g.pts.reduce((sum, p) => sum + p.lng, 0) / total;
+    const size = Math.round(Math.max(54, Math.min(112, 40 + Math.sqrt(total) * 10)));
+    const color = pending === 0 ? '#9CA3AF' : (level === 'ward' ? '#E8862E' : '#7C3AED');
+    const big = areaBigCount === 'pending' ? pending : total;
+    const small = areaBigCount === 'pending' ? `全${total}件` : `未完了 ${pending}`;
+    const html = `<div class="area-bubble" style="width:${size}px; height:${size}px; background:${color};">
+        <span>${escapeHtml(g.label)}</span><b>${big}</b><small>${small}</small></div>`;
+    const icon = L.divIcon({ className:'', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
+    const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 }).addTo(areaLayer);
+    marker.on('click', () => {
+      const bounds = L.latLngBounds(g.pts.map(p => [p.lat, p.lng]));
+      const minZoom = (level === 'ward') ? areaZoomWard + 0.5 : areaZoomTown + 0.5; // 次の段階（町名／ピン）に切り替わるところまで寄る
+      const fit = map.getBoundsZoom(bounds.pad(0.25));
+      const z = Math.max(minZoom, Math.min(fit, 19));
+      map.setView(bounds.getCenter(), (areaMode === 'area' && level === 'town') ? Math.min(z, 18) : z);
+    });
+  });
+}
+function areaModeLabel(){
+  const names = { auto:'自動', pin:'ピン', area:'エリア' };
+  const lv = map ? currentAreaLevel() : 'pin';
+  const suffix = lv === 'ward' ? '：区ごと' : (lv === 'town' ? '：町名ごと' : '');
+  return `🗺️ 表示：${names[areaMode]}${suffix}`;
+}
+function updateAreaModeBtn(){
+  const btn = document.getElementById('areaModeBtn');
+  if (btn) btn.textContent = areaModeLabel();
+}
+function openAreaModeDialog(){
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100000; display:flex; align-items:flex-end; justify-content:center;';
+  const opt = (v, title, sub) => `<label style="display:block; border:2px solid ${areaMode===v?'var(--orange)':'var(--line)'}; border-radius:12px; padding:10px 12px; margin-bottom:8px; cursor:pointer;">
+      <input type="radio" name="areaModeRadio" value="${v}" ${areaMode===v?'checked':''} style="margin-right:6px;"><b>${title}</b>
+      <div style="font-size:11px; color:var(--sub); margin:2px 0 0 22px;">${sub}</div></label>`;
+  ov.innerHTML = `<div style="background:var(--paper); color:var(--ink); width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:16px 18px calc(18px + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto;">
+    <div style="font-size:16px; font-weight:700; margin-bottom:10px;">🗺️ 地点の表示方法</div>
+    ${opt('auto','自動（おすすめ）','引くとエリア、寄るとピン')}
+    ${opt('pin','いつもピン','今までどおり、すべての地点をピンで表示')}
+    ${opt('area','いつもエリア','拡大してもエリアの丸のまま（町名ごと）')}
+    <div style="font-size:13px; font-weight:700; margin:12px 0 4px;">丸の大きな数字</div>
+    <label style="margin-right:14px;"><input type="radio" name="areaBigRadio" value="all" ${areaBigCount==='all'?'checked':''}> 全件</label>
+    <label><input type="radio" name="areaBigRadio" value="pending" ${areaBigCount==='pending'?'checked':''}> 未完了だけ</label>
+    <div style="font-size:13px; font-weight:700; margin:14px 0 4px;">切り替わる拡大率（自動のとき）</div>
+    <div id="areaZoomRow" style="display:flex; flex-direction:column; gap:6px; font-size:13px;"></div>
+    <div style="font-size:11px; color:var(--sub); margin-top:6px;">この数字より引くと、区ごと／町名ごとの丸になります。</div>
+    <button type="button" id="areaDlgClose" class="btn btn-primary" style="width:100%; margin-top:14px; padding:12px;">閉じる</button>
+  </div>`;
+  document.body.appendChild(ov);
+  const zoomRow = ov.querySelector('#areaZoomRow');
+  const renderZoomRow = () => {
+    const row = (key, label, val) => `<div style="display:flex; align-items:center; gap:8px;"><span style="flex:1;">${label}</span>
+      <button type="button" data-k="${key}" data-d="-0.5" class="btn btn-secondary" style="padding:4px 12px;">－</button>
+      <b style="min-width:34px; text-align:center;">${val}</b>
+      <button type="button" data-k="${key}" data-d="0.5" class="btn btn-secondary" style="padding:4px 12px;">＋</button></div>`;
+    zoomRow.innerHTML = row('zw','区ごとにする（これより引く）', areaZoomWard) + row('zt','町名ごとにする（これより引く）', areaZoomTown);
+    zoomRow.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+      const d = Number(b.dataset.d);
+      if (b.dataset.k === 'zw') areaZoomWard = Math.max(8, Math.min(areaZoomTown - 0.5, areaZoomWard + d));
+      else areaZoomTown = Math.max(areaZoomWard + 0.5, Math.min(20, areaZoomTown + d));
+      saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn(); renderZoomRow();
+    }));
+  };
+  renderZoomRow();
+  ov.querySelectorAll('input[name=areaModeRadio]').forEach(r => r.addEventListener('change', () => {
+    areaMode = r.value; saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn();
+    ov.querySelectorAll('input[name=areaModeRadio]').forEach(x => { x.parentElement.style.borderColor = x.checked ? 'var(--orange)' : 'var(--line)'; });
+  }));
+  ov.querySelectorAll('input[name=areaBigRadio]').forEach(r => r.addEventListener('change', () => {
+    areaBigCount = r.value; saveAreaSettings(); renderAllMarkers();
+  }));
+  const close = () => ov.remove();
+  ov.querySelector('#areaDlgClose').addEventListener('click', close);
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+}
+function initAreaMode(){
+  loadAreaSettings();
+  const btn = document.getElementById('areaModeBtn');
+  if (btn) btn.addEventListener('click', openAreaModeDialog);
+  updateAreaModeBtn();
+}
+
 function renderAllMarkers(){
   markersLayer.clearLayers();
   buildingOutlineLayer.clearLayers();
+  areaLayer.clearLayers();
   pointMarkerById = {};
   const visiblePoints = points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
     .filter(p => !batchModeActive || isPointInBatch(p.id) || p.id === batchOriginKey);
+  const areaLevel = currentAreaLevel();
+  updateAreaModeBtn();
+  if (areaLevel !== 'pin') {
+    // 引いた表示：配達先はエリアの丸にまとめる。拠点（🚩）だけは目印なのでピンのまま出す
+    stopMarkersLayer.clearLayers();
+    renderAreaBubbles(visiblePoints, areaLevel);
+    visiblePoints.filter(p => p.type === 'parking' && p.isBase).forEach(p => addMarkerToMap(p));
+    updateCount();
+    return;
+  }
   renderStopMarkers(visiblePoints);
   const visibleIds = new Set(visiblePoints.map(p => p.id));
   const alreadyDrawn = new Set();
@@ -3748,6 +4037,8 @@ function renderPhotoPreviewList(){
 }
 
 function openNewSheet(latlng){
+  pendingBatchAddPointId = null;
+  document.getElementById('newOverlay').style.zIndex = '';
   editingPointId = null;
   pendingLatLng = latlng;
   pendingType = null;
@@ -3795,6 +4086,9 @@ function openNewSheet(latlng){
 function openEditSheet(id){
   const p = points.find(pt => pt.id === id);
   if (!p) return;
+  pendingBatchAddPointId = null; // 部屋追加の流れから開く時だけ、呼び出し側があとで立てる
+  document.getElementById('newOverlay').style.zIndex = '';
+  document.getElementById('typeRow').style.display = 'flex';
   document.getElementById('ocrResultBox').style.display = 'none';
   document.getElementById('ocrSplitRow').style.display = 'none';
   document.getElementById('ocrResultText').value = '';
@@ -4311,6 +4605,19 @@ document.getElementById('photoInput').addEventListener('change', (e) => {
 });
 
 document.getElementById('cancelNewBtn').addEventListener('click', () => {
+  if (pendingBatchAddPointId) {
+    // 部屋追加の流れの途中でやめた時は、作りかけの部屋を残さない
+    const id = pendingBatchAddPointId;
+    pendingBatchAddPointId = null;
+    points = points.filter(pt => pt.id !== id);
+    actionHistory = actionHistory.filter(a => !(a.type === 'point' && a.id === id));
+    savePoints();
+    renderAllMarkers();
+    document.getElementById('newOverlay').style.zIndex = '';
+    document.getElementById('typeRow').style.display = 'flex';
+    showMiniToast('部屋の追加をやめました');
+    if (document.getElementById('searchOverlay').classList.contains('open')) runSearch(document.getElementById('searchInput').value);
+  }
   editingPointId = null;
   pendingParkingLinkTargetId = null;
   document.getElementById('newOverlay').classList.remove('open');
@@ -4323,6 +4630,8 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
   }
 
   let savedPointForOutline = null; // 保存後、建物の輪郭取得を試みる対象
+  const batchAddId = (pendingBatchAddPointId && pendingBatchAddPointId === editingPointId) ? pendingBatchAddPointId : null;
+  pendingBatchAddPointId = null;
 
   if (editingPointId) {
     // 既存の地点を編集する場合：場所(lat/lng)と登録日時はそのまま、内容だけ書き換える
@@ -4397,6 +4706,18 @@ document.getElementById('saveNewBtn').addEventListener('click', async () => {
   renderAllMarkers(); // 種類や写真が変わるとピンの見た目も変わるため、全体を描き直す
   await savePoints();
   document.getElementById('newOverlay').classList.remove('open');
+  document.getElementById('newOverlay').style.zIndex = '';
+  document.getElementById('typeRow').style.display = 'flex';
+  if (batchAddId) {
+    // 部屋追加の流れ：保存した部屋を便に入れて、開いたままの検索画面に戻る
+    const bp = points.find(pt => pt.id === batchAddId);
+    if (bp) {
+      if (!currentBatchItems.some(item => item.pointId === bp.id)) toggleBatchPoint(bp);
+      const order = currentBatchItems.findIndex(item => item.pointId === bp.id) + 1;
+      showMiniToast(`✓ ${bp.name || bp.roomNumber || '地点'}を ${order}番目に追加しました`);
+      if (document.getElementById('searchOverlay').classList.contains('open')) runSearch(document.getElementById('searchInput').value);
+    }
+  }
 
   // 名前が入っていれば、裏で建物の輪郭取得を試みる（時間がかかるので画面は先に閉じてよい）
   if (savedPointForOutline && (savedPointForOutline.name || savedPointForOutline.nameKana)) {
@@ -6580,7 +6901,7 @@ function runSearch(query){
       const addRoomBtn = row.querySelector('.row-add-room-btn');
       if (addRoomBtn) addRoomBtn.addEventListener('click', (evt) => {
         evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
-        addRoomFromAnchor(p);
+        addRoomFromAnchor(p, { toBatch:true });
       });
       row.querySelector('.batch-add-btn').addEventListener('click', (evt) => {
         evt.stopPropagation(); // 行全体のクリック(地図へ移動)を誘発しないようにする
@@ -6875,7 +7196,11 @@ function askRoomNumber(anchor){
     setTimeout(() => input.focus(), 50);
   });
 }
-async function addRoomFromAnchor(anchor){
+// 配送を組んでいる最中（検索画面から）の部屋追加は、検索画面を閉じずに
+// 「部屋番号 → 名前などの登録シート → 保存して便に追加 → 検索画面に戻る」と1本でつなぐ。
+let pendingBatchAddPointId = null;
+async function addRoomFromAnchor(anchor, opts){
+  const toBatch = !!(opts && opts.toBatch);
   // 選んだ部屋に停車の設定が無くても、同じ建物の他の部屋に設定があればそちらを引き継ぐ
   const hasStop = (pt) => pt.parkingPointId || typeof pt.stopLat === 'number' || pt.parkHere;
   if (!hasStop(anchor)) {
@@ -6913,6 +7238,17 @@ async function addRoomFromAnchor(anchor){
   actionHistory.push({ type:'point', id:point.id });
   await savePoints();
   renderAllMarkers();
+  if (toBatch) {
+    // 検索画面は閉じたままにしない。登録シートをその上に重ねて、保存したら便に入れて検索画面へ戻る
+    openEditSheet(point.id);
+    pendingBatchAddPointId = point.id;
+    document.getElementById('newOverlay').style.zIndex = '950'; // 検索画面（後ろのDOM）より手前に出す
+    document.getElementById('typeRow').style.display = 'none'; // 部屋追加は配達先で決まっているので、種類の選択は隠してすっきりさせる
+    document.getElementById('newSheetTitle').textContent = `🏢 この部屋を登録${room ? '（' + room + '）' : ''}`;
+    document.getElementById('saveNewBtn').textContent = '✓ 保存して便に追加';
+    setTimeout(() => document.getElementById('nameInput').focus(), 250);
+    return;
+  }
   document.getElementById('searchOverlay').classList.remove('open');
   document.getElementById('detailOverlay').classList.remove('open');
   map.setView([point.lat, point.lng], Math.max(map.getZoom(), 18));
@@ -6926,7 +7262,7 @@ document.getElementById('geocodeAddRoomBtn').addEventListener('click', () => {
     .filter(pt => distanceMeters(pt.lat, pt.lng, lastGeocodeResult.lat, lastGeocodeResult.lng) <= BUILDING_GROUP_RADIUS_M)
     .filter(pt => addressSimilarity(pt.address, lastGeocodeResult.label) >= ADDRESS_MATCH_THRESHOLD);
   if (nearby.length === 0) return;
-  addRoomFromAnchor(pickRoomAnchor(nearby));
+  addRoomFromAnchor(pickRoomAnchor(nearby), { toBatch:true });
 });
 
 // ---------- 住所検索の履歴 ----------
