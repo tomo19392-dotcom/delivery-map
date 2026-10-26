@@ -45,7 +45,7 @@
   html[data-theme="gold"] #legend{ background:rgba(13,11,6,.94); border:1px solid #4d3f14; }
   html[data-theme="gold"] .btn-group-panel{ background:rgba(13,11,6,.96); border:1px solid #4d3f14; }
   html[data-theme="gold"] #moreBtn, html[data-theme="gold"] #undoBtn, html[data-theme="gold"] #settingsBtn, html[data-theme="gold"] #trashBtn, html[data-theme="gold"] #searchBtn,
-  html[data-theme="gold"] #areaModeBtn, html[data-theme="gold"] #areaCfgBtn, html[data-theme="gold"] #areaFocusBtn{ background:rgba(13,11,6,.96) !important; color:var(--ink) !important; border:1px solid #6b571a !important; }
+  html[data-theme="gold"] #labelModeBtn, html[data-theme="gold"] #areaModeBtn, html[data-theme="gold"] #areaCfgBtn, html[data-theme="gold"] #areaFocusBtn{ background:rgba(13,11,6,.96) !important; color:var(--ink) !important; border:1px solid #6b571a !important; }
   html[data-theme="gold"] .corner-picker{ background:#000; }
   html[data-theme="gold"] .style-btn.selected{ background:#2b2208; color:var(--ink); }
   html[data-theme="gold"] .btn-secondary{ background:#1a1507; color:var(--ink); border:1px solid #6b571a; }
@@ -161,6 +161,7 @@
   /* 停車位置の編集中は、すでに保存済みの🚗・矢印を薄くして、動かしているものと区別する */
   #map.stop-editing .stop-car-icon, #map.stop-editing .stop-dir-icon{ opacity:.25; }
   #areaFocusBtn{ background:#7C3AED; color:#fff; border:none; border-radius:99px; padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.3); }
+  #labelModeBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:99px; padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.25); white-space:nowrap; }
   #areaCfgBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:50%; width:34px; height:34px; font-size:15px; box-shadow:0 1px 5px rgba(0,0,0,.25); }
   #areaModeBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:99px;
     padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.25); white-space:nowrap; }
@@ -634,7 +635,7 @@
   </div>
 </div>
 <button type="button" id="areaFocusBtn" style="display:none;" title="エリアの絞り込みを解除"></button>
-<div id="areaBtnRow" style="display:flex; gap:6px; align-items:center;"><button type="button" id="areaModeBtn" title="丸表示のオン／オフ"></button><button type="button" id="areaCfgBtn" title="丸表示の設定">⚙</button></div>
+<div id="areaBtnRow" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; max-width:190px;"><button type="button" id="areaModeBtn" title="丸表示のオン／オフ"></button><button type="button" id="areaCfgBtn" title="丸表示の設定">⚙</button><button type="button" id="labelModeBtn" title="地図の文字を「名前」か「住所」で切り替え"></button></div>
 <button type="button" id="compassBtn" title="タップで「北が上」⇄「進行方向が上」を切り替え" aria-label="方位"></button>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
 <div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
@@ -1068,7 +1069,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-B（画面の整理）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-C（名前／住所の切り替え）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -3759,7 +3760,7 @@ function areaModeLabel(){
   const names = { auto:'自動', pin:'ピン', area:'エリア' };
   const lv = map ? currentAreaLevel() : 'pin';
   const suffix = lv === 'ward' ? '：区ごと' : (lv === 'town' ? '：町名ごと' : '');
-  return areaMode === 'pin' ? '⚪ 丸表示：オフ' : `🔵 丸表示：オン${areaMode === 'area' ? '（常時）' : ''}${suffix ? '' : ''}`;
+  return areaMode === 'pin' ? '⚪ 丸：オフ' : `🔵 丸：オン${areaMode === 'area' ? '（常時）' : ''}`;
 }
 function updateAreaModeBtn(){
   const btn = document.getElementById('areaModeBtn');
@@ -3821,6 +3822,15 @@ function initAreaMode(){
     saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn();
     showMiniToast(areaMode === 'pin' ? 'ピンだけ表示' : '丸表示（引くとエリアにまとまる）');
   });
+  const lb = document.getElementById('labelModeBtn');
+  const paintLb = () => { lb.textContent = labelMode === 'name' ? '🏷️ 名前' : '🏷️ 住所'; };
+  paintLb();
+  lb.addEventListener('click', () => {
+    labelMode = labelMode === 'name' ? 'address' : 'name';
+    try { localStorage.setItem(LABEL_MODE_KEY, labelMode); } catch (e) {}
+    paintLb(); renderAllMarkers(); updateBatchBar();
+    showMiniToast(labelMode === 'name' ? '地図の文字：名前（名前が無い所は住所）' : '地図の文字：住所');
+  });
   const cfg = document.getElementById('areaCfgBtn');
   if (cfg) cfg.addEventListener('click', openAreaModeDialog);
   const fb = document.getElementById('areaFocusBtn');
@@ -3867,6 +3877,7 @@ function renderAllMarkers(){
   // 便の中に、まだ登録していない場所（住所検索から追加したもの）があれば、
   // それも一時的な目印として地図に表示する
   if (batchModeActive) {
+    if (linkAdhocItemsToPoints()) setTimeout(() => { updateBatchBar(); renderAllMarkers(); }, 0);
     currentBatchItems.filter(item => !item.pointId).forEach(item => {
       // 検索しただけでまだ登録していない場所は、以前の検索結果と同じ「点滅する赤い印」で統一する
       const html = `
@@ -3875,7 +3886,7 @@ function renderAllMarkers(){
             background:rgba(220,38,38,.35); animation:pulse 1.4s ease-out infinite;"></div>
           <div style="position:absolute; top:9px; left:9px; width:16px; height:16px; border-radius:50%;
             background:#DC2626; border:3px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>
-          <div class="pin-name-label" style="display:block; top:9px; left:38px;">${escapeHtml(item.label)}</div>
+          <div class="pin-name-label" style="display:block; top:9px; left:38px;">${escapeHtml(batchItemLabel(item))}</div>
         </div>`;
       const icon = L.divIcon({ className:'', html, iconSize:[34,34], iconAnchor:[17,17] });
       L.marker([item.lat, item.lng], { icon, interactive:false, zIndexOffset:2000 }).addTo(markersLayer);
@@ -3991,8 +4002,7 @@ function addMarkerToMap(p){
   // 拡大率に関わらずピンの横に常に名前を出す（詳細を開かなくても分かるようにする）。
   // 名前が無ければ住所、それも無ければ「未登録」「仮登録」を出し、必ず何か表示されるようにする。
   // 建物の輪郭が取得できている場合は、そちらの中央に名前を出すのでここでは重複させない。
-  let displayName = p.name || p.nameKana || fullAddressOf(p) || '';
-  if (!displayName) displayName = p.provisional ? '仮登録' : '未登録';
+  const displayName = pointLabel(p);
   let nameLabel = '';
   if (!p.buildingOutline) {
     nameLabel = `<div class="pin-name-label">${escapeHtml(displayName)}${ratingChip}</div>`;
@@ -4068,7 +4078,7 @@ function addGroupMarkerToMap(group){
   const openTarget = openPool.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
   const isRouteOriginGroup = batchModeActive && group.some(pt => pt.id === batchOriginKey);
   // 名前が無ければ住所、それも無ければ「未登録」を出し、必ず何か表示されるようにする
-  const anchorLabel = openTarget.name || openTarget.nameKana || fullAddressOf(openTarget) || '未登録';
+  const anchorLabel = pointLabel(openTarget);
   const nameLabel = `<div class="pin-name-label">${escapeHtml(anchorLabel)} 他${group.length - 1}件</div>`;
   const originLabel = isRouteOriginGroup
     ? `<div class="pin-name-label" style="display:block; background:#2563eb; color:#fff; font-weight:700;">🚩 出発地点</div>` : '';
@@ -4996,7 +5006,7 @@ function renderBuildingOutlineForPoint(p){
   }).addTo(buildingOutlineLayer);
   {
     // 名前が無ければ住所、それも無ければ「未登録」「仮登録」を出し、必ず何か表示されるようにする
-    let label = p.name || p.nameKana || fullAddressOf(p) || (p.provisional ? '仮登録' : '未登録');
+    const label = pointLabel(p);
     const centroid = polygonCentroid(p.buildingOutline);
     const icon = L.divIcon({
       className:'',
@@ -5101,6 +5111,51 @@ function distanceMeters(lat1, lng1, lat2, lng2){
 // 部屋番号を混ぜないことで、同じ建物の別部屋をきちんと見分けられるようにしている。
 function fullAddressOf(p){
   return [p.address, p.roomNumber].filter(Boolean).join(' ');
+}
+// ---------- 地図のラベルを「名前」か「住所」で出し分ける ----------
+// 新規のお客様は、住所だけで仮登録 → 現地で名前を入れる、という流れが多いため、
+// 名前を入れたら名前が出る（名前優先）／住所で場所を確かめたい時は住所優先、をすぐ切り替えられるようにする。
+const LABEL_MODE_KEY = 'delivery-label-mode-v1';
+let labelMode = 'name'; // 'name'（名前優先） | 'address'（住所優先）
+try { const v = localStorage.getItem(LABEL_MODE_KEY); if (v === 'name' || v === 'address') labelMode = v; } catch (e) {}
+function pointLabel(p){
+  const addr = fullAddressOf(p);
+  const nm = p.name || p.nameKana || '';
+  const r = labelMode === 'address' ? (addr || nm) : (nm || addr);
+  return r || (p.provisional ? '仮登録' : '未登録');
+}
+// 便の中の「まだ登録していない場所（赤印）」に対応する登録済みの地点を探す。
+// 検索した場所の後から登録したもの（登録日時が追加より後）を優先し、無ければ「1件だけ一致」した時だけ採用する。
+function matchRegisteredForAdhoc(item){
+  if (item.pointId) return null;
+  const addrKey = item.label || '';
+  const ts = Number(String(item.key || '').replace('adhoc_', '')) || 0;
+  const cands = points.filter(pt => pt.type === 'delivery'
+    && distanceMeters(pt.lat, pt.lng, item.lat, item.lng) <= BUILDING_GROUP_RADIUS_M
+    && addressSimilarity(pt.address, addrKey) >= ADDRESS_MATCH_THRESHOLD);
+  if (cands.length === 0) return null;
+  const newer = cands.filter(pt => (pt.createdAt || 0) >= ts).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  if (newer.length) return newer[0];
+  return cands.length === 1 ? cands[0] : null;
+}
+function batchItemLabel(item){
+  if (item.pointId) { const pt = points.find(x => x.id === item.pointId); return pt ? pointLabel(pt) : item.label; }
+  const m = matchRegisteredForAdhoc(item);
+  return m ? pointLabel(m) : item.label;
+}
+// 登録を済ませた場所は、赤印（仮の目印）から、本物の地点に置き換える（順番はそのまま）
+function linkAdhocItemsToPoints(){
+  let changed = false;
+  currentBatchItems = currentBatchItems.filter((item, idx, arr) => {
+    if (item.pointId) return true;
+    const ts = Number(String(item.key || '').replace('adhoc_', '')) || 0;
+    const m = matchRegisteredForAdhoc(item);
+    if (!m || (m.createdAt || 0) < ts) return true; // 後から登録された地点だけ自動で置き換える
+    if (arr.some(o => o.pointId === m.id)) { changed = true; return false; } // すでに便に入っている → 赤印だけ消す
+    item.key = m.id; item.pointId = m.id; item.lat = m.lat; item.lng = m.lng; item.label = pointLabel(m);
+    changed = true; return true;
+  });
+  return changed;
 }
 // 住所の末尾が「◯号室」「◯号棟」「棟◯号室」などのはっきりした部屋表記で終わっている時だけ、
 // 自動で切り分ける候補を出す（数字だけの末尾は建物によって番地なのか部屋番号なのか判断できないため、候補にしない）。
@@ -6869,7 +6924,7 @@ function updateBatchBar(){
         style="flex-shrink:0; cursor:grab; font-size:18px; line-height:1; color:var(--sub); padding:4px 2px; touch-action:none; user-select:none;">⠿</span>
       <span style="flex-shrink:0; width:20px; height:20px; border-radius:50%; background:var(--blue); color:#fff;
         font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center;">${i + 1}</span>
-      <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px;">${escapeHtml(item.label)}</span>
+      <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px;">${escapeHtml(batchItemLabel(item))}</span>
       <button type="button" class="batch-remove-btn" data-key="${item.key}"
         style="flex-shrink:0; background:none; border:none; color:var(--red); font-size:16px; padding:0 4px;">✕</button>
     </div>
@@ -6897,7 +6952,7 @@ function updateBatchBar(){
   const batchOnlyItems = currentBatchItems.filter(item => !basePoints.some(p => p.id === item.key));
   if (batchOnlyItems.length > 0) {
     optionsHtml += '<optgroup label="今回の便">' +
-      batchOnlyItems.map(item => `<option value="${item.key}">${escapeHtml(item.label)}</option>`).join('') +
+      batchOnlyItems.map(item => `<option value="${item.key}">${escapeHtml(batchItemLabel(item))}</option>`).join('') +
       '</optgroup>';
   }
   originSelect.innerHTML = optionsHtml;
