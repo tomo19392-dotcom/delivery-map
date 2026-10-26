@@ -32,9 +32,30 @@
     --line:#374151;
   }
   html[data-theme="gold"]{
-    --orange:#D4AF37; /* 配達先＝ゴールド */
-    --blue:#B8B8C0;   /* 停車位置＝シルバー */
+    --ink:#F6E7B0;    /* 文字＝淡いゴールド */
+    --paper:#0d0b06;  /* 面＝ほぼ黒（ごく僅かに金を含む） */
+    --bg:#000000;     /* 背景＝漆黒 */
+    --sub:#B39A52;
+    --line:#4d3f14;
+    --orange:#E0B93C; /* 配達先＝ゴールド */
+    --blue:#C9CAD2;   /* 停車位置＝シルバー */
+    --on-accent:#14100a; /* ゴールド／シルバーの上に載せる文字は黒（白だと薄くて読めない） */
   }
+  html{ --on-accent:#fff; }
+  html[data-theme="gold"] #legend{ background:rgba(13,11,6,.94); border:1px solid #4d3f14; }
+  html[data-theme="gold"] .btn-group-panel{ background:rgba(13,11,6,.96); border:1px solid #4d3f14; }
+  html[data-theme="gold"] #undoBtn, html[data-theme="gold"] #settingsBtn, html[data-theme="gold"] #trashBtn, html[data-theme="gold"] #searchBtn,
+  html[data-theme="gold"] #areaModeBtn, html[data-theme="gold"] #areaCfgBtn, html[data-theme="gold"] #areaFocusBtn{ background:rgba(13,11,6,.96) !important; color:var(--ink) !important; border:1px solid #6b571a !important; }
+  html[data-theme="gold"] .corner-picker{ background:#000; }
+  html[data-theme="gold"] .style-btn.selected{ background:#2b2208; color:var(--ink); }
+  html[data-theme="gold"] .btn-secondary{ background:#1a1507; color:var(--ink); border:1px solid #6b571a; }
+  html[data-theme="gold"] .toggle-btn, html[data-theme="gold"] .type-btn, html[data-theme="gold"] .stamp-pick{ background:#0d0b06; border-color:#4d3f14; color:var(--ink); }
+  html[data-theme="gold"] .toggle-btn.on{ background:#3a2f0a; border-color:#E0B93C; color:#F6E7B0; }
+  html[data-theme="gold"] #drawBar, html[data-theme="gold"] #stampBar{ background:rgba(13,11,6,.98) !important; }
+  html[data-theme="gold"] .sheet-close-x{ background:#1f1a0a; color:var(--ink); }
+  html[data-theme="gold"] .weight-swatch.selected, html[data-theme="gold"] .stamp-pick.selected{ background:#3a2f0a; border-color:#E0B93C; }
+  html[data-theme="gold"] .leaflet-tile-pane{ filter:brightness(.5) saturate(.55) sepia(.3); } /* 地図もぐっと暗く：金のピンが地図の明るい部分に埋もれない */
+  html[data-theme="gold"] .pin-name-label{ box-shadow:0 0 0 1px rgba(0,0,0,.6); }
   /* CSS変数化されていない、個別にハードコードされた白背景の要素はここで上書きする */
   html[data-theme="dark"] #legend, html[data-theme="gold"] #legend{ background:rgba(31,41,55,.92); }
   html[data-theme="dark"] .btn-group-panel, html[data-theme="gold"] .btn-group-panel{ background:rgba(31,41,55,.95); }
@@ -65,10 +86,10 @@
   body.ui-hidden #hint{ display:none !important; }
   html[data-theme="dark"] #newOverlay .sheet.type-delivery{ background:#4a2c17; }
   html[data-theme="dark"] #newOverlay .sheet.type-parking{ background:#1e3a5f; }
-  html[data-theme="gold"] #newOverlay .sheet.type-delivery{ background:#3a2f0a; }
-  html[data-theme="gold"] #newOverlay .sheet.type-parking{ background:#2a2a2e; }
+  html[data-theme="gold"] #newOverlay .sheet.type-delivery{ background:#1c1605; }
+  html[data-theme="gold"] #newOverlay .sheet.type-parking{ background:#17171a; }
   /* 地図タイル自体を少し暗めに寄せる（白飛びを抑え、夜間の目の負担を減らす） */
-  html[data-theme="dark"] .leaflet-tile-pane, html[data-theme="gold"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
+  html[data-theme="dark"] .leaflet-tile-pane{ filter:brightness(.78) saturate(.9); }
   /* ここから下は、固定の薄い色背景のままだとダークモードで白っぽく浮いて見えたり、
      文字色（var(--ink)など）だけがテーマに合わせて変わって背景と同化してしまったりする
      箇所の個別対応。見た目の統一感のためと、念のための可読性確保のため。 */
@@ -76,7 +97,7 @@
   html[data-theme="dark"] .stamp-pick, html[data-theme="gold"] .stamp-pick{ background:#111827; }
   html[data-theme="dark"] .detail-type.delivery{ background:#4a2c17; }
   html[data-theme="dark"] .detail-type.parking{ background:#1e3a5f; }
-  html[data-theme="gold"] .detail-type.delivery{ background:#3a2f0a; }
+  html[data-theme="gold"] .detail-type.delivery{ background:#2a2108; }
   html[data-theme="gold"] .detail-type.parking{ background:#2a2a2e; }
   html[data-theme="dark"] .detail-warn, html[data-theme="gold"] .detail-warn{ background:#450a0a; color:#fca5a5; }
 
@@ -139,6 +160,8 @@
     background:rgba(255,255,255,.7); color:#333; z-index:400; pointer-events:none; }
   /* 停車位置の編集中は、すでに保存済みの🚗・矢印を薄くして、動かしているものと区別する */
   #map.stop-editing .stop-car-icon, #map.stop-editing .stop-dir-icon{ opacity:.25; }
+  #areaFocusBtn{ background:#7C3AED; color:#fff; border:none; border-radius:99px; padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.3); }
+  #areaCfgBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:50%; width:34px; height:34px; font-size:15px; box-shadow:0 1px 5px rgba(0,0,0,.25); }
   #areaModeBtn{ background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:99px;
     padding:7px 12px; font-size:12px; font-weight:700; box-shadow:0 1px 5px rgba(0,0,0,.25); white-space:nowrap; }
   .area-bubble{ border-radius:50%; color:#fff; text-align:center; border:3px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.35);
@@ -282,7 +305,7 @@
     padding:10px 16px; font-size:13px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);
     display:flex; align-items:center; gap:6px; cursor:pointer;
   }
-  .fab.following{ background:var(--blue); border-color:var(--blue); color:#fff; } /* 追従中は一目で分かるよう色を変える */
+  .fab.following{ background:var(--blue); border-color:var(--blue); color:var(--on-accent); } /* 追従中は一目で分かるよう色を変える */
 
   /* 凡例 */
   #legend{
@@ -360,8 +383,8 @@
     background:#fafafa; font-size:14px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
     transition:background-color .15s ease, border-color .15s ease, color .15s ease;
   }
-  .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:#fff; box-shadow:0 2px 8px rgba(232,134,46,.35); }
-  .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(79,160,214,.35); }
+  .type-btn.selected.delivery{ border-color:var(--orange); background:var(--orange); color:var(--on-accent); box-shadow:0 2px 8px rgba(232,134,46,.35); }
+  .type-btn.selected.parking{ border-color:var(--blue); background:var(--blue); color:var(--on-accent); box-shadow:0 2px 8px rgba(79,160,214,.35); }
 
   /* 配色テーマ（通常／ダーク／黒金）の切り替えボタン */
   .theme-btn{
@@ -369,7 +392,7 @@
     background:var(--bg); font-size:12px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
   }
   .theme-btn-icon{ display:block; font-size:18px; margin-bottom:2px; }
-  .theme-btn.selected{ border-color:var(--blue); background:var(--blue); color:#fff; }
+  .theme-btn.selected{ border-color:var(--blue); background:var(--blue); color:var(--on-accent); }
   .theme-btn[data-theme-choice="gold"].selected{ border-color:#D4AF37; background:#D4AF37; color:#1a1405; }
 
   /* コンビニなどの目印：チェーンごとの色を左右で分けた丸いアイコンにする */
@@ -436,7 +459,7 @@
      拡大してボタン枠いっぱいに近づけることで目立たなくする */
   .mode-icon{ display:inline-block; transform:scale(1.35); line-height:1; }
   .mode-btn .mode-label{ font-size:8px; line-height:1; white-space:nowrap; margin-top:3px; }
-  .mode-btn.active{ background:var(--blue); color:#fff; }
+  .mode-btn.active{ background:var(--blue); color:var(--on-accent); }
   #drawBar{ display:none; }
   #drawBar.show{ display:flex; }
   #stampBar.show{ display:flex; }
@@ -605,7 +628,8 @@
     <div id="trailBatchLegendList" style="display:flex; flex-direction:column; gap:2px;"></div>
   </div>
 </div>
-<button type="button" id="areaModeBtn" title="地点の表示方法（自動／ピン／エリア）"></button>
+<button type="button" id="areaFocusBtn" style="display:none;" title="エリアの絞り込みを解除"></button>
+<div id="areaBtnRow" style="display:flex; gap:6px; align-items:center;"><button type="button" id="areaModeBtn" title="丸表示のオン／オフ"></button><button type="button" id="areaCfgBtn" title="丸表示の設定">⚙</button></div>
 <button type="button" id="compassBtn" title="タップで「北が上」⇄「進行方向が上」を切り替え" aria-label="方位"></button>
 <button class="fab" id="recenterBtn">📍 現在地に戻る</button>
 <div id="gpsStatus" style="background:rgba(17,24,39,.85); color:#fff; font-size:11px; padding:5px 10px; border-radius:8px; display:flex; align-items:center; gap:5px;">
@@ -649,7 +673,7 @@
 
 <!-- 元に戻す・検索・設定 -->
 <div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
-  <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:#fff;
+  <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:var(--on-accent);
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む<span id="batchQuickCount" style="display:none; margin-left:4px; background:#fff; color:var(--blue); border-radius:999px; padding:1px 6px; font-size:11px;"></span></button>
   <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
@@ -1019,7 +1043,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1025-B（部屋追加の流れ・エリア表示）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-A（丸の絞り込み・タグ追加・黒金）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1062,7 +1086,7 @@
         <p style="font-size:10px; color:#92400E; margin:6px 0 0;">住所・位置は上の登録を引き継ぎ、部屋番号・名前・備考だけ入力すればOK</p>
       </div>
       <button type="button" id="geocodeNewBtn" style="width:100%; padding:15px; font-size:16px; font-weight:700;
-        background:var(--orange); color:#fff; border:none; border-radius:12px; margin-bottom:10px;">📌 新規登録（名前・部屋を入力）</button>
+        background:var(--orange); color:var(--on-accent); border:none; border-radius:12px; margin-bottom:10px;">📌 新規登録（名前・部屋を入力）</button>
       <div class="btn-row" style="margin-top:0;">
         <button type="button" class="btn btn-secondary" id="geocodeViewBtn" style="padding:7px; font-size:12px;">🗺️ 地図で見る</button>
         <button type="button" class="btn btn-primary" id="geocodeAddBatchBtn" style="padding:7px; font-size:12px;">➕ 便に追加</button>
@@ -1593,7 +1617,7 @@ let colorTheme = 'light'; // 'light'（通常） | 'dark'（ダーク） | 'gold
 const PIN_THEME_COLORS = {
   light: { delivery: '#E8862E', parking: '#4FA0D6' },
   dark:  { delivery: '#E8862E', parking: '#4FA0D6' },
-  gold:  { delivery: '#D4AF37', parking: '#B8B8C0' }
+  gold:  { delivery: '#E0B93C', parking: '#C9CAD2' }
 };
 function deliveryColor(){ return (PIN_THEME_COLORS[colorTheme] || PIN_THEME_COLORS.light).delivery; }
 function parkingColor(){ return (PIN_THEME_COLORS[colorTheme] || PIN_THEME_COLORS.light).parking; }
@@ -1625,13 +1649,18 @@ const NOTE_TAGS = [
   { id:'back_in',      emoji:'↩️', label:'バックで進入',   group:'car' },
   // 🏠 客先の情報
   { id:'signless',     emoji:'✍️', label:'サインレス',       group:'customer' },
+  { id:'prepaid',      emoji:'💴', label:'先払い',         group:'customer' },
+  { id:'pre_sign',     emoji:'🖊️', label:'先サイン',       group:'customer' },
+  { id:'no_call',      emoji:'🤫', label:'声掛け不要',     group:'customer' },
+  { id:'absent_hist',  emoji:'📭', label:'不在歴',         group:'customer' },
   { id:'no_stopper',   emoji:'🚪', label:'ドアストッパー不要', group:'customer' },
   { id:'elderly',      emoji:'👴', label:'高齢者',         group:'customer' },
   { id:'daytime_out',  emoji:'☀️', label:'日中不在がち',   group:'customer' },
   { id:'autolock',     emoji:'🔐', label:'オートロック',   group:'customer' },
   { id:'no_elevator',  emoji:'🛗', label:'エレベーター無し', group:'customer' },
   { id:'stairs_normal',emoji:'🪜', label:'階段（通常）',   group:'customer' },
-  { id:'stairs_bump',  emoji:'🔼', label:'階段（段差）',   group:'customer' },
+  { id:'stairs_small', emoji:'🪜', label:'階段（小）',     group:'customer' },
+  { id:'stairs_bump',  emoji:'🔼', label:'段差',           group:'customer' },
   { id:'ramp',         emoji:'🛞', label:'スロープ',       group:'customer' },
   { id:'bell_broken',  emoji:'🔔', label:'呼び鈴故障',     group:'customer' },
   // 📌 その他
@@ -1817,7 +1846,8 @@ function placeInCorner(el, corner){
 function applyLayoutPositions(){
   // 常に固定の隅に置くもの
   placeInCorner(document.getElementById('legend'), 'bottom-left');
-  placeInCorner(document.getElementById('areaModeBtn'), 'bottom-left'); // 凡例のすぐ上に積まれる
+  placeInCorner(document.getElementById('areaFocusBtn'), 'bottom-left');
+  placeInCorner(document.getElementById('areaBtnRow'), 'bottom-left'); // 凡例のすぐ上に積まれる
   placeInCorner(document.getElementById('recenterBtn'), 'bottom-right'); // 一番下（隅に近い側）
   placeInCorner(document.getElementById('gpsStatus'), 'bottom-right');
   placeInCorner(document.getElementById('offlineStatus'), 'bottom-right');
@@ -2322,7 +2352,8 @@ function initMap(){
   [
     document.getElementById('recenterBtn'),
     document.getElementById('compassBtn'),
-    document.getElementById('areaModeBtn'),
+    document.getElementById('areaBtnRow'),
+    document.getElementById('areaFocusBtn'),
     document.getElementById('legend'),
     document.getElementById('hint'),
     document.getElementById('gpsStatus'),
@@ -3589,15 +3620,15 @@ function findBuildingSiblings(p){
 const AREA_KEY = 'delivery-area-mode-v1';
 let areaMode = 'auto';        // 'auto'（引くとエリア・寄るとピン） | 'pin'（いつもピン） | 'area'（いつもエリア）
 let areaBigCount = 'all';     // 丸の大きな数字：'all'（全件） | 'pending'（未完了）
-let areaZoomWard = 14;        // この拡大率より引いたら「区」ごと
-let areaZoomTown = 16;        // この拡大率より引いたら「町名」ごと（これ以上はピン）
+let areaZoomWard = 13.5;        // この拡大率より引いたら「区」ごと
+let areaZoomTown = 15.5;        // この拡大率より引いたら「町名」ごと（これ以上はピン）
 function loadAreaSettings(){
   try {
     const o = JSON.parse(localStorage.getItem(AREA_KEY) || '{}');
     if (['auto','pin','area'].includes(o.mode)) areaMode = o.mode;
     if (['all','pending'].includes(o.big)) areaBigCount = o.big;
-    if (typeof o.zw === 'number') areaZoomWard = o.zw;
-    if (typeof o.zt === 'number') areaZoomTown = o.zt;
+    // 以前の初期値（14／16）のままの人は、少し遠めから丸にする新しい初期値へ。自分で変えた値はそのまま
+    if (typeof o.zw === 'number' && !(o.zw === 14 && o.zt === 16)) { areaZoomWard = o.zw; areaZoomTown = o.zt; }
   } catch (e) {}
 }
 function saveAreaSettings(){
@@ -3624,11 +3655,29 @@ function parseAreaFromAddress(addr){
   areaParseCache.set(addr, result);
   return result;
 }
+// 丸をタップすると、そのエリアの地点だけを表示する（areaFocus に入る）。解除は左下のボタン。
+let areaFocus = null; // { wardKey, townKey|null, label }
+function pointInAreaFocus(p){
+  if (!areaFocus) return true;
+  if (p.type !== 'delivery') return true; // 拠点などは目印なので残す
+  const a = parseAreaFromAddress(p.address);
+  const wk = a ? a.wardKey : '__none__';
+  if (wk !== areaFocus.wardKey) return false;
+  if (areaFocus.townKey) return (a ? a.townKey : '__none__') === areaFocus.townKey;
+  return true;
+}
+function setAreaFocus(f){
+  areaFocus = f;
+  const btn = document.getElementById('areaFocusBtn');
+  if (btn) { btn.style.display = f ? '' : 'none'; if (f) btn.textContent = '✕ ' + f.label + ' だけ表示中（タップで全体へ）'; }
+  renderAllMarkers();
+}
 function currentAreaLevel(){
-  if (!map || batchModeActive) return 'pin'; // 便を組んでいる間は、選んだ地点だけなのでピンのまま
+  if (!map || batchModeActive) return 'pin';
+  if (areaFocus && areaFocus.townKey) return 'pin'; // 町名まで絞ったら中身（ピン）を見せる // 便を組んでいる間は、選んだ地点だけなのでピンのまま
   if (areaMode === 'pin') return 'pin';
   const z = map.getZoom();
-  if (z < areaZoomWard) return 'ward';
+  if (z < areaZoomWard) return areaFocus ? 'town' : 'ward'; // 区で絞っている間は町名ごとの丸
   if (areaMode === 'area') return 'town';
   return z < areaZoomTown ? 'town' : 'pin';
 }
@@ -3657,9 +3706,16 @@ function renderAreaBubbles(visiblePoints, level){
     const icon = L.divIcon({ className:'', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
     const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 }).addTo(areaLayer);
     marker.on('click', () => {
+      // そのエリアだけを表示する
+      const ks = g.pts[0] ? parseAreaFromAddress(g.pts[0].address) : null;
+      const wk = ks ? ks.wardKey : '__none__';
+      const fl = { wardKey: wk, townKey: null, label: g.label };
+      if (level === 'town') fl.townKey = ks ? ks.townKey : '__none__';
+      else if (areaFocus === null && !ks) fl.townKey = '__none__';
+      setAreaFocus(fl);
       const bounds = L.latLngBounds(g.pts.map(p => [p.lat, p.lng]));
-      const minZoom = (level === 'ward') ? areaZoomWard + 0.5 : areaZoomTown + 0.5; // 次の段階（町名／ピン）に切り替わるところまで寄る
       const fit = map.getBoundsZoom(bounds.pad(0.25));
+      const minZoom = (level === 'ward') ? areaZoomWard + 0.5 : areaZoomTown + 0.5; // 次の段階（町名／ピン）に切り替わるところまで寄る
       const z = Math.max(minZoom, Math.min(fit, 19));
       map.setView(bounds.getCenter(), (areaMode === 'area' && level === 'town') ? Math.min(z, 18) : z);
     });
@@ -3669,7 +3725,7 @@ function areaModeLabel(){
   const names = { auto:'自動', pin:'ピン', area:'エリア' };
   const lv = map ? currentAreaLevel() : 'pin';
   const suffix = lv === 'ward' ? '：区ごと' : (lv === 'town' ? '：町名ごと' : '');
-  return `🗺️ 表示：${names[areaMode]}${suffix}`;
+  return areaMode === 'pin' ? '⚪ 丸表示：オフ' : `🔵 丸表示：オン${areaMode === 'area' ? '（常時）' : ''}${suffix ? '' : ''}`;
 }
 function updateAreaModeBtn(){
   const btn = document.getElementById('areaModeBtn');
@@ -3724,7 +3780,17 @@ function openAreaModeDialog(){
 function initAreaMode(){
   loadAreaSettings();
   const btn = document.getElementById('areaModeBtn');
-  if (btn) btn.addEventListener('click', openAreaModeDialog);
+  // タップ一発で「丸表示あり（自動）」⇔「ピンのみ」を切り替える。くわしい設定は隣の⚙から
+  if (btn) btn.addEventListener('click', () => {
+    areaMode = (areaMode === 'pin') ? 'auto' : 'pin';
+    if (areaMode === 'pin') setAreaFocus(null);
+    saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn();
+    showMiniToast(areaMode === 'pin' ? 'ピンだけ表示' : '丸表示（引くとエリアにまとまる）');
+  });
+  const cfg = document.getElementById('areaCfgBtn');
+  if (cfg) cfg.addEventListener('click', openAreaModeDialog);
+  const fb = document.getElementById('areaFocusBtn');
+  if (fb) fb.addEventListener('click', () => setAreaFocus(null));
   updateAreaModeBtn();
 }
 
@@ -3735,7 +3801,8 @@ function renderAllMarkers(){
   pointMarkerById = {};
   const visiblePoints = points
     .filter(p => !(hideDoneEnabled && p.status === 'done'))
-    .filter(p => !batchModeActive || isPointInBatch(p.id) || p.id === batchOriginKey);
+    .filter(p => !batchModeActive || isPointInBatch(p.id) || p.id === batchOriginKey)
+    .filter(p => batchModeActive || pointInAreaFocus(p));
   const areaLevel = currentAreaLevel();
   updateAreaModeBtn();
   if (areaLevel !== 'pin') {
