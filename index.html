@@ -44,7 +44,7 @@
   html{ --on-accent:#fff; }
   html[data-theme="gold"] #legend{ background:rgba(13,11,6,.94); border:1px solid #4d3f14; }
   html[data-theme="gold"] .btn-group-panel{ background:rgba(13,11,6,.96); border:1px solid #4d3f14; }
-  html[data-theme="gold"] #undoBtn, html[data-theme="gold"] #settingsBtn, html[data-theme="gold"] #trashBtn, html[data-theme="gold"] #searchBtn,
+  html[data-theme="gold"] #moreBtn, html[data-theme="gold"] #undoBtn, html[data-theme="gold"] #settingsBtn, html[data-theme="gold"] #trashBtn, html[data-theme="gold"] #searchBtn,
   html[data-theme="gold"] #areaModeBtn, html[data-theme="gold"] #areaCfgBtn, html[data-theme="gold"] #areaFocusBtn{ background:rgba(13,11,6,.96) !important; color:var(--ink) !important; border:1px solid #6b571a !important; }
   html[data-theme="gold"] .corner-picker{ background:#000; }
   html[data-theme="gold"] .style-btn.selected{ background:#2b2208; color:var(--ink); }
@@ -59,7 +59,7 @@
   /* CSS変数化されていない、個別にハードコードされた白背景の要素はここで上書きする */
   html[data-theme="dark"] #legend, html[data-theme="gold"] #legend{ background:rgba(31,41,55,.92); }
   html[data-theme="dark"] .btn-group-panel, html[data-theme="gold"] .btn-group-panel{ background:rgba(31,41,55,.95); }
-  html[data-theme="dark"] #undoBtn, html[data-theme="gold"] #undoBtn,
+  html[data-theme="dark"] #moreBtn, html[data-theme="gold"] #moreBtn, html[data-theme="dark"] #undoBtn, html[data-theme="gold"] #undoBtn,
   html[data-theme="dark"] #settingsBtn, html[data-theme="gold"] #settingsBtn,
   html[data-theme="dark"] #trashBtn, html[data-theme="gold"] #trashBtn,
   html[data-theme="dark"] #searchBtn, html[data-theme="gold"] #searchBtn{ background:rgba(31,41,55,.95) !important; color:var(--ink) !important; }
@@ -379,7 +379,7 @@
 
   .type-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .type-btn{
-    flex:1; padding:14px 8px; border-radius:10px; border:2px solid var(--line);
+    flex:1; padding:10px 8px; border-radius:10px; border:2px solid var(--line);
     background:#fafafa; font-size:14px; font-weight:700; color:var(--sub); text-align:center; cursor:pointer;
     transition:background-color .15s ease, border-color .15s ease, color .15s ease;
   }
@@ -422,6 +422,8 @@
   #detailPhotos img{ width:100%; border-radius:10px; display:block; }
 
   .btn-row{ display:flex; gap:10px; margin-top:18px; }
+  #ratingButtonRow{ gap:6px !important; width:100%; flex-wrap:nowrap !important; }
+    #detailMoreMenu summary{ list-style:none; } #detailMoreMenu summary::-webkit-details-marker{ display:none; }
   .btn{
     flex:1; padding:13px; border-radius:10px; border:none; font-size:14px; font-weight:700; cursor:pointer;
   }
@@ -613,6 +615,8 @@
   地図をタップして地点を登録できます
 </div>
 <div id="legend">
+  <div id="legendToggle" style="font-size:11px; font-weight:700; cursor:pointer;">🗂️ 凡例 <span id="legendArrow">▾</span></div>
+  <div id="legendBody" style="display:none;">
   <div class="row"><span class="dot" style="background:var(--orange)"></span>配達先</div>
   <div class="row"><span class="dot" style="background:var(--blue)"></span>停車位置</div>
   <div class="row">📷 写真あり</div>
@@ -626,6 +630,7 @@
     margin-top:4px; padding-top:4px; border-top:1px solid var(--line);">
     <div style="font-size:10px; color:var(--sub);">本日の軌跡（便ごと）</div>
     <div id="trailBatchLegendList" style="display:flex; flex-direction:column; gap:2px;"></div>
+  </div>
   </div>
 </div>
 <button type="button" id="areaFocusBtn" style="display:none;" title="エリアの絞り込みを解除"></button>
@@ -675,14 +680,18 @@
 <div id="utilityBar" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
   <button id="batchQuickBtn" style="background:var(--blue); border:none; border-radius:999px; color:var(--on-accent);
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🚚 配達先を組む<span id="batchQuickCount" style="display:none; margin-left:4px; background:#fff; color:var(--blue); border-radius:999px; padding:1px 6px; font-size:11px;"></span></button>
-  <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
-    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
   <button id="searchBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🔍 検索</button>
+  <button id="moreBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">⋯ その他</button>
+  <div id="moreMenu" style="display:none; flex-direction:column; gap:6px; align-items:flex-end;">
+  <button id="undoBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">↩️ 元に戻す</button>
   <button id="trashBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">🗑️ ゴミ箱</button>
   <button id="settingsBtn" style="background:rgba(255,255,255,.97); border:none; border-radius:999px;
     box-shadow:0 2px 10px rgba(0,0,0,.15); padding:9px 14px; font-size:13px; font-weight:600;">⚙️ 設定</button>
+  </div>
 </div>
 
 <!-- 描画モード用サブツールバー -->
@@ -789,17 +798,22 @@
     </div>
 
     <div class="sheet-scroll-body">
-      <label class="field-label">名前・呼び名（任意）</label>
-      <input type="text" id="nameInput" name="deliveryMapName_nofill" autocomplete="off" placeholder="例）田中様／○○マンション301"
-        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
-
       <label class="field-label">住所（建物までの住所）</label>
       <input type="text" id="addressInput" name="deliveryMapAddress_nofill" autocomplete="off" placeholder="例）東京都千代田区丸の内1-1-1"
         style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
 
-      <label class="field-label">部屋番号・号室など（任意）</label>
-      <input type="text" id="roomNumberInput" name="deliveryMapRoomNumber_nofill" autocomplete="off" placeholder="例）101号室"
-        style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+      <div style="display:flex; gap:8px;">
+        <div style="flex:0 0 36%; min-width:0;">
+          <label class="field-label">部屋（任意）</label>
+          <input type="text" id="roomNumberInput" name="deliveryMapRoomNumber_nofill" autocomplete="off" placeholder="例）101"
+            style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+        </div>
+        <div style="flex:1; min-width:0;">
+          <label class="field-label">名前・呼び名（任意）</label>
+          <input type="text" id="nameInput" name="deliveryMapName_nofill" autocomplete="off" placeholder="例）田中様"
+            style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
+        </div>
+      </div>
 
       <div id="parkingCategoryWrap" style="display:none;">
         <label class="field-label">停車位置の種類</label>
@@ -812,6 +826,11 @@
 
       <label class="field-label">メモ・注意書き（任意）</label>
       <textarea id="memoInput" name="deliveryMapMemo_nofill" autocomplete="off" placeholder="例）建物の裏口から入る／インターホンは2階用"></textarea>
+
+      <details id="newTagsDetails" style="margin-top:12px; border:1px solid var(--line); border-radius:10px; padding:0 12px;">
+        <summary id="newTagsSummary" style="padding:11px 0; font-size:14px; font-weight:700; cursor:pointer;">🏷️ 注意点タグ（サインレス・先払い など）</summary>
+        <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
+      </details>
 
       <details id="newAdvanced" style="margin-top:14px; border:1px solid var(--line); border-radius:10px; padding:0 12px;">
         <summary id="newAdvancedSummary" style="padding:12px 0; font-size:14px; font-weight:700; cursor:pointer;">詳細（写真・BOX・タグ・停車位置・ふりがななど）</summary>
@@ -875,9 +894,6 @@
           style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
       </div>
 
-      <label class="field-label">よくある注意点（複数選べます）</label>
-      <div id="noteTagsWrap" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;"></div>
-
       <div class="attn-row">
         <input type="checkbox" id="attnInput" />
         <span>⚠️ 注意が必要な地点（通行注意・軽バン不可など）</span>
@@ -919,23 +935,11 @@
       <button type="button" id="detailBuildingNextBtn" aria-label="次の部屋"
         style="flex-shrink:0; width:36px; height:36px; border-radius:8px; border:none; background:#fff; color:#7C3AED; font-size:20px; font-weight:700;">›</button>
     </div>
-    <div id="detailQuickBar" style="display:flex; gap:8px; margin:0 0 8px;">
-      <button type="button" class="btn btn-primary" id="quickPhotoBtn" style="padding:15px 6px; font-size:15px;">📷 写真</button>
-      <button type="button" class="btn btn-secondary" id="quickEditBtn" style="padding:15px 6px; font-size:15px;">✏️ 編集</button>
-      <button type="button" class="btn btn-secondary" id="quickStopBtn" style="padding:15px 6px; font-size:15px;">🚗 停車位置</button>
-    </div>
-    <input type="file" id="quickPhotoInput" accept="image/*" capture="environment" style="display:none;" />
-    <div id="detailQuickThumbs" style="display:none; gap:6px; margin-bottom:8px; overflow-x:auto;"></div>
-    <div id="detailQuickTags" style="display:none; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
     <div id="detailNameKana" style="display:none; font-size:12px; color:var(--sub); background:var(--bg); padding:2px 8px; border-radius:6px; margin-bottom:4px;"></div>
     <div id="detailName" style="font-size:18px; font-weight:700; margin-bottom:6px;"></div>
-    <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
-    <button type="button" id="movePointBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">📍 この地点を移動する</button>
-    <button type="button" id="addToBatchBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; margin-left:6px;">🚚 便に追加</button>
-    <button type="button" id="confirmProvisionalBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px; margin-left:6px; background:#8B5CF6; color:#fff;">📌 仮登録中（タップで本登録に）</button>
     <div id="detailTypeWrap"></div>
-
-    <div style="margin-top:6px;">
+    <button type="button" id="confirmProvisionalBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px; margin-left:6px; background:#8B5CF6; color:#fff;">📌 仮登録中（タップで本登録に）</button>
+    <div style="margin-top:4px;">
       <div class="info-row" id="detailAddressRow" style="display:none; flex-wrap:wrap;">
         <div style="flex:1; min-width:0;">
           <div class="info-row-label">📍 住所</div>
@@ -947,6 +951,33 @@
         </div>
       </div>
 
+    </div>
+    <div id="detailQuickTags" style="display:none; flex-wrap:wrap; gap:8px; margin:8px 0 6px;"></div>
+    <div id="detailQuickBar" style="display:flex; gap:8px; margin:6px 0 8px;">
+      <button type="button" class="btn btn-secondary" id="quickPhotoBtn" style="padding:12px 4px; font-size:14px;">📷 写真</button>
+      <button type="button" class="btn btn-secondary" id="quickStopBtn" style="padding:12px 4px; font-size:14px;">🚗 停車位置</button>
+      <button type="button" class="btn btn-secondary" id="addToBatchBtn" style="padding:12px 4px; font-size:14px;">🚚 便に追加</button>
+    </div>
+    <details id="detailMoreMenu" style="margin:0 0 8px;">
+      <summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--sub); padding:6px 2px;">⋯ その他の操作</summary>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; padding:6px 0;">
+        <button type="button" class="copy-btn" id="quickEditBtn">✏️ 編集</button>
+    <button type="button" id="movePointBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; ">📍 この地点を移動する</button>
+    <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+    <button class="btn btn-secondary" id="addParkingLinkBtn" style="display:none;  padding:9px; font-size:13px;">
+      🅿️ 停車位置を新しく登録してここに紐づける
+    </button>
+    <button class="btn btn-secondary" id="editStopPositionBtn" style="display:none;  padding:9px; font-size:13px;">
+      🚗 停車位置と向きを地図で指定
+    </button>
+      </div>
+    </details>
+    <input type="file" id="quickPhotoInput" accept="image/*" capture="environment" style="display:none;" />
+    <div id="detailQuickThumbs" style="display:none; gap:6px; margin-bottom:8px; overflow-x:auto;"></div>
+
+    <div style="margin-top:6px;">
       <div class="info-row" id="detailDirectionRow" style="display:none;">
         <div style="flex:1; min-width:0;">
           <div class="info-row-label">🧭 現在地からの方角</div>
@@ -1002,13 +1033,7 @@
       </div>
     </div>
 
-    <button class="btn btn-secondary" id="addParkingLinkBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
-      🅿️ 停車位置を新しく登録してここに紐づける
-    </button>
 
-    <button class="btn btn-secondary" id="editStopPositionBtn" style="display:none; margin-top:4px; padding:9px; font-size:13px;">
-      🚗 停車位置と向きを地図で指定
-    </button>
 
     <!-- 「次の配達」の自動スキップ機能がこのボタンで完了を記録する仕組みのため、表示するようにした。 -->
     <div>
@@ -1043,7 +1068,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-A（丸の絞り込み・タグ追加・黒金）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-B（画面の整理）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1758,6 +1783,7 @@ function buildNoteTagsUI(){
         const idx = pendingTags.indexOf(tag.id);
         if (idx === -1) pendingTags.push(tag.id); else pendingTags.splice(idx, 1);
         btn.classList.toggle('selected', pendingTags.includes(tag.id));
+        updateTagSummary();
       });
       row.appendChild(btn);
     });
@@ -1765,8 +1791,16 @@ function buildNoteTagsUI(){
     wrap.appendChild(groupWrap);
   });
 }
+function updateTagSummary(){
+  const el = document.getElementById('newTagsSummary');
+  if (!el) return;
+  el.textContent = pendingTags.length
+    ? '🏷️ 注意点タグ：' + sortTagsByGroup(pendingTags).map(id => { const t = NOTE_TAGS.find(x => x.id === id); return t ? t.label : id; }).join('・')
+    : '🏷️ 注意点タグ（サインレス・先払い など）';
+}
 function setPendingTags(tags){
   pendingTags = (tags || []).slice();
+  setTimeout(updateTagSummary, 0);
   document.querySelectorAll('.note-tag-btn').forEach(btn => {
     btn.classList.toggle('selected', pendingTags.includes(btn.dataset.tagId));
   });
@@ -5315,7 +5349,7 @@ function renderRatingButtons(){
   if (!row) return;
   row.innerHTML = RATING_TIERS.map(t => `
     <button type="button" class="btn rating-btn" data-rating="${t.key}"
-      style="flex:0 0 30%; padding:9px 4px; font-size:13px; font-weight:700;">${t.key}</button>
+      style="flex:1 1 0; min-width:0; padding:8px 2px; font-size:13px; font-weight:700;">${t.key}</button>
   `).join('');
   row.querySelectorAll('.rating-btn').forEach(btn => {
     btn.addEventListener('click', () => setPointRating(btn.dataset.rating));
@@ -5618,13 +5652,14 @@ function openDetailSheet(id){
   const tagsEl = document.getElementById('detailTags');
   if (p.tags && p.tags.length > 0) {
     tagsEl.innerHTML = '';
-    sortTagsByGroup(p.tags).forEach(tagId => {
+    const quickIds = p.type === 'delivery' ? NOTE_TAGS.filter(t => t.group === 'customer').slice(0, 4).map(t => t.id) : [];
+    sortTagsByGroup(p.tags).filter(tagId => !quickIds.includes(tagId)).forEach(tagId => {
       const chip = document.createElement('span');
       chip.className = 'note-tag-chip';
       chip.textContent = noteTagLabel(tagId);
       tagsEl.appendChild(chip);
     });
-    tagsRow.style.display = 'flex';
+    tagsRow.style.display = tagsEl.children.length ? 'flex' : 'none';
   } else {
     tagsRow.style.display = 'none';
   }
@@ -5684,6 +5719,10 @@ function renderDetailQuickBar(p){
       });
       quickTags.appendChild(btn);
     });
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'quick-tag-btn'; more.textContent = '＋ タグ';
+    more.addEventListener('click', () => document.getElementById('editBtn').click());
+    quickTags.appendChild(more);
   }
   quickTags.style.display = quickTags.children.length ? 'flex' : 'none';
 }
@@ -6713,6 +6752,25 @@ document.getElementById('hideDoneToggle').addEventListener('change', (e) => {
 });
 
 document.getElementById('undoBtn').addEventListener('click', undoLastAction);
+document.getElementById('legendToggle').addEventListener('click', () => {
+  const b = document.getElementById('legendBody');
+  const open = b.style.display === 'none';
+  b.style.display = open ? 'block' : 'none';
+  document.getElementById('legendArrow').textContent = open ? '▴' : '▾';
+  if (typeof adjustCornerHeights === 'function') adjustCornerHeights();
+});
+// 「元に戻す・ゴミ箱・設定」は「⋯ その他」にまとめた。開く→選ぶと自動で閉じる
+(function(){
+  const mb = document.getElementById('moreBtn'), mm = document.getElementById('moreMenu');
+  const close = () => { mm.style.display = 'none'; mb.textContent = '⋯ その他'; };
+  mb.addEventListener('click', () => {
+    const open = mm.style.display === 'none';
+    mm.style.display = open ? 'flex' : 'none';
+    mb.textContent = open ? '✕ 閉じる' : '⋯ その他';
+    if (typeof adjustCornerHeights === 'function') adjustCornerHeights();
+  });
+  mm.addEventListener('click', (e) => { if (e.target.closest('button')) setTimeout(close, 0); });
+})();
 
 // ---------- 検索 ----------
 function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位置'; }
