@@ -318,6 +318,7 @@
 
   /* ヒント */
   #hint{
+    pointer-events:none;
     position:fixed; top:64px; left:50%; transform:translateX(-50%);
     background:rgba(31,41,55,.9); color:#fff; font-size:12px; padding:8px 14px; border-radius:999px;
     z-index:600; white-space:nowrap; transition:opacity .4s;
@@ -558,7 +559,7 @@
     </div>
   </div>
   <!-- 拠点付近に長時間停車→動き出した時だけ出る、便の区切り確認 -->
-  <div id="batchSplitPrompt" style="display:none; align-items:center; gap:10px; flex-wrap:wrap;
+  <div id="batchSplitPrompt" style="position:relative; z-index:700; display:none; align-items:center; gap:10px; flex-wrap:wrap;
     background:rgba(5,150,105,.97); color:#fff; font-size:13px; font-weight:600; padding:10px 14px;
     border-bottom:1px solid rgba(255,255,255,.2); flex-shrink:0;">
     <span style="font-size:18px; flex-shrink:0;">🅿️</span>
@@ -959,11 +960,13 @@
       <button type="button" class="btn btn-secondary" id="quickStopBtn" style="padding:12px 4px; font-size:14px;">🚗 停車位置</button>
       <button type="button" class="btn btn-secondary" id="addToBatchBtn" style="padding:12px 4px; font-size:14px;">🚚 便に追加</button>
     </div>
+    <div id="detailEditRow" style="display:flex; gap:8px; margin:0 0 8px;">
+      <button type="button" class="btn btn-secondary" id="quickEditBtn" style="padding:11px 4px; font-size:14px;">✏️ 編集</button>
+      <button type="button" class="btn btn-secondary" id="movePointBtn" style="padding:11px 4px; font-size:14px;">📍 地点を移動</button>
+    </div>
     <details id="detailMoreMenu" style="margin:0 0 8px;">
       <summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--sub); padding:6px 2px;">⋯ その他の操作</summary>
       <div style="display:flex; flex-wrap:wrap; gap:6px; padding:6px 0;">
-        <button type="button" class="copy-btn" id="quickEditBtn">✏️ 編集</button>
-    <button type="button" id="movePointBtn" class="copy-btn" style="font-size:11px; margin-bottom:6px; ">📍 この地点を移動する</button>
     <button type="button" id="retryBuildingOutlineBtn" class="copy-btn" style="display:none; font-size:11px; margin-bottom:6px;">🏠 建物の形を取得し直す</button>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px;">
@@ -1069,7 +1072,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-C（名前／住所の切り替え）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-D（出発地点の固定・修正ボタン）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -1090,6 +1093,7 @@
       <div style="display:flex; align-items:center; gap:8px;">
         <label style="flex-shrink:0; color:var(--sub);">🚩 出発地点</label>
         <select id="batchOriginSelect" style="flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; background:var(--paper); color:var(--ink);"></select>
+        <button type="button" class="copy-btn" id="batchOriginPinBtn" style="flex-shrink:0; font-size:11px;" title="この出発地点を、便を組む時の初期値にする">📌 固定</button>
       </div>
     </div>
     <div id="searchResults" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
@@ -1303,6 +1307,9 @@
       </button>
     </div>
 
+    <label class="field-label">🚩 便を組む時の出発地点（初期値）</label>
+    <select id="defaultOriginSelect" style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);"></select>
+    <div style="font-size:11px; color:var(--sub); margin:4px 0 12px; line-height:1.5;">選んだ地点が、便を組み始めた時の出発地点になります（便ごとに、その場で変えることもできます）。</div>
     <label class="field-label">画面の見た目</label>
     <div style="margin-bottom:6px; display:flex; gap:8px; flex-wrap:wrap;">
       <button class="toggle-btn" id="largeTextToggleBtn"><span class="box">⬜</span> 文字を大きくする</button>
@@ -3578,6 +3585,15 @@ let hideDoneEnabled = false;
 // pointId: 登録済みの地点ならそのid、まだ登録していない場所（住所検索の結果）ならnull。
 let currentBatchItems = []; // { key, pointId, lat, lng, label }
 let batchOriginKey = 'current'; // 'current'＝現在地、それ以外はcurrentBatchItemsのkey
+// 便を組み始める時の出発地点の初期値（設定で固定できる）。拠点（🚩）が消えていたら現在地に戻す
+const DEFAULT_ORIGIN_KEY = 'delivery-default-origin-v1';
+function getDefaultOriginSetting(){ try { return localStorage.getItem(DEFAULT_ORIGIN_KEY) || 'current'; } catch (e) { return 'current'; } }
+function setDefaultOriginSetting(v){ try { if (!v || v === 'current') localStorage.removeItem(DEFAULT_ORIGIN_KEY); else localStorage.setItem(DEFAULT_ORIGIN_KEY, v); } catch (e) {} }
+function defaultOriginKey(){
+  const v = getDefaultOriginSetting();
+  if (v === 'current') return 'current';
+  return points.some(pt => pt.id === v && pt.type === 'parking' && pt.isBase) ? v : 'current';
+}
 let batchModeActive = false;
 function isPointInBatch(id){
   return currentBatchItems.some(item => item.pointId === id);
@@ -6832,6 +6848,7 @@ function typeLabelOf(p){ return p.type === 'delivery' ? '配達先' : '停車位
 
 // ---------- 「今回の便」機能：複数の地点を選んで、それだけを地図に表示する ----------
 function toggleBatchPoint(p){
+  if (currentBatchItems.length === 0) batchOriginKey = defaultOriginKey();
   const i = currentBatchItems.findIndex(item => item.pointId === p.id);
   if (i === -1) {
     currentBatchItems.push({ key:p.id, pointId:p.id, lat:p.lat, lng:p.lng, label: p.name || p.nameKana || fullAddressOf(p) || '地点' });
@@ -6843,6 +6860,7 @@ function toggleBatchPoint(p){
 }
 // まだ登録していない場所（住所検索の結果）を便に追加する
 function addAdhocToBatch(lat, lng, label){
+  if (currentBatchItems.length === 0) batchOriginKey = defaultOriginKey();
   currentBatchItems.push({ key:'adhoc_' + Date.now(), pointId:null, lat, lng, label: label || '検索した場所' });
   updateBatchBar();
 }
@@ -6957,15 +6975,35 @@ function updateBatchBar(){
   }
   originSelect.innerHTML = optionsHtml;
   originSelect.value = batchOriginKey;
+  paintOriginPinBtn();
   renderOriginMarker();
 }
+function paintOriginPinBtn(){
+  const b = document.getElementById('batchOriginPinBtn');
+  if (!b) return;
+  const fixed = getDefaultOriginSetting() !== 'current' && getDefaultOriginSetting() === batchOriginKey;
+  b.textContent = fixed ? '📌 固定中' : '📌 固定';
+  b.style.background = fixed ? 'var(--blue)' : '';
+  b.style.color = fixed ? 'var(--on-accent)' : '';
+}
+document.getElementById('batchOriginPinBtn').addEventListener('click', () => {
+  const isBase = points.some(pt => pt.id === batchOriginKey && pt.type === 'parking' && pt.isBase);
+  if (batchOriginKey !== 'current' && !isBase) { showMiniToast('固定できるのは「現在地」か「拠点（🚩）」です'); return; }
+  if (getDefaultOriginSetting() === batchOriginKey || batchOriginKey === 'current') {
+    setDefaultOriginSetting('current'); showMiniToast('初期値：現在地');
+  } else {
+    setDefaultOriginSetting(batchOriginKey);
+    const pt = points.find(x => x.id === batchOriginKey); showMiniToast('初期値：' + (pt && (pt.name || pt.nameKana) || '拠点'));
+  }
+  paintOriginPinBtn(); refreshDefaultOriginSelect();
+});
 document.getElementById('batchOriginSelect').addEventListener('change', (e) => {
-  batchOriginKey = e.target.value;
+  batchOriginKey = e.target.value; paintOriginPinBtn();
   renderNavWidget(); renderNextStopBar(); renderOriginMarker();
 });
 document.getElementById('batchClearBtn').addEventListener('click', () => {
   currentBatchItems = [];
-  batchOriginKey = 'current';
+  batchOriginKey = defaultOriginKey();
   updateBatchBar();
   runSearch(document.getElementById('searchInput').value);
   renderNavWidget(); renderNextStopBar();
@@ -7809,7 +7847,20 @@ async function checkStorageWarningOnLaunch(){
   );
 }
 
+function refreshDefaultOriginSelect(){
+  const sel = document.getElementById('defaultOriginSelect');
+  if (!sel) return;
+  const bases = points.filter(pt => pt.type === 'parking' && pt.isBase);
+  sel.innerHTML = '<option value="current">📍 現在地</option>' + bases.map(pt => `<option value="${pt.id}">🚩 ${escapeHtml(pt.name || pt.nameKana || '拠点')}</option>`).join('');
+  sel.value = defaultOriginKey();
+}
+document.getElementById('defaultOriginSelect').addEventListener('change', (e) => {
+  setDefaultOriginSetting(e.target.value);
+  if (currentBatchItems.length === 0) { batchOriginKey = defaultOriginKey(); }
+  paintOriginPinBtn();
+});
 document.getElementById('settingsBtn').addEventListener('click', () => {
+  refreshDefaultOriginSelect();
   document.getElementById('settingUserNameInput').value = currentUserName;
   updateStorageUsageDisplay();
   openSheetOverlay('settingsOverlay');
