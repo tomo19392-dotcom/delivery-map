@@ -1074,7 +1074,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-C（まとめ円の件数）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-D（拠点ナビ表示を最下部へ）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -3429,12 +3429,13 @@ function renderNavWidget(){
   const widget = document.getElementById('navTargetWidget');
   const baseRow = document.getElementById('navBaseRow');
   const base = getBatchOriginTarget();
-  if (!myMarker || !base) { widget.style.display = 'none'; return; }
+  if (!myMarker || !base) { widget.style.display = 'none'; updateNavWidgetSafeOffset(); return; }
   fillNavRow(base, document.getElementById('navBaseArrow'), document.getElementById('navBaseText'));
   baseRow.style.display = 'flex';
   baseRow.onclick = () => jumpToNavTarget(base);
   widget.style.display = 'flex';
   updateNavWidgetSafeOffset();
+  requestAnimationFrame(() => { if (typeof adjustCornerHeights === 'function') adjustCornerHeights(); });
 }
 // ヘッダー直下：次の配達地点への方角と距離を、常に見える固定バーとして表示する
 // （完了にした地点は自動でスキップされ、次の未完了地点に切り替わる）
@@ -3455,14 +3456,17 @@ function renderNextStopBar(){
 // 地図の下のナビ表示（拠点）が、画面下の他のUI（凡例・現在地に戻る等）と
 // 重ならないよう、四隅コンテナの実際の高さを測って、その上に来るよう底からの余白を調整する。
 function updateNavWidgetSafeOffset(){
+  // 拠点ナビの黒い表示は画面の一番下に置き、その分だけ左下・右下のボタン類を上へ持ち上げる
+  // （以前はボタン類の上に載せていたため、ボタンが多いと画面の真ん中に出て邪魔になっていた）
   const widget = document.getElementById('navTargetWidget');
   if (!widget) return;
   const leftEl = document.getElementById('cornerBottomLeft');
   const rightEl = document.getElementById('cornerBottomRight');
-  const leftH = leftEl ? leftEl.offsetHeight : 0;
-  const rightH = rightEl ? rightEl.offsetHeight : 0;
-  const clearance = Math.max(leftH, rightH) + 12 /* 四隅コンテナ自体の底からの余白 */ + 10;
-  widget.style.bottom = Math.max(16, clearance) + 'px';
+  const shown = widget.style.display !== 'none';
+  widget.style.bottom = '12px';
+  const lift = shown ? (12 + widget.offsetHeight + 8) : 12;
+  if (leftEl) leftEl.style.bottom = lift + 'px';
+  if (rightEl) rightEl.style.bottom = lift + 'px';
 }
 
 function startWatchingMyLocation(){
