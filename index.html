@@ -1074,7 +1074,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-A（まとめ円の整理・追従位置・矢印）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-B（写真への書き込み）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -5522,6 +5522,172 @@ function renderDetailBuildingNav(p){
     }
   }, { passive: true });
 })();
+// ---------- 写真への書き込み（ペン・矢印・文字） ----------
+// 書き込みは写真そのものには焼き込まず、別のデータ（p.photoNotes）として保存する。
+// そのため、表示のオン／オフをいつでも切り替えられ、元の写真もそのまま残る。
+// 座標は写真の幅・高さに対する割合（0〜1）で持つので、表示サイズが変わってもずれない。
+const PHOTO_NOTES_VISIBLE_KEY = 'delivery-photo-notes-visible-v1';
+let photoNotesVisible = true;
+try { if (localStorage.getItem(PHOTO_NOTES_VISIBLE_KEY) === '0') photoNotesVisible = false; } catch (e) {}
+function setPhotoNotesVisible(v){
+  photoNotesVisible = v;
+  try { localStorage.setItem(PHOTO_NOTES_VISIBLE_KEY, v ? '1' : '0'); } catch (e) {}
+}
+// 写真のデータ（長い文字列）から、書き込みを結びつけるための短い目印を作る
+function photoKey(src){
+  let h = 0; const step = Math.max(1, Math.floor(src.length / 400));
+  for (let i = 0; i < src.length; i += step) h = (h * 31 + src.charCodeAt(i)) | 0;
+  return src.length + '_' + h;
+}
+function getPhotoNotes(p, src){ return (p.photoNotes && p.photoNotes[photoKey(src)]) || []; }
+function drawPhotoNotes(ctx, notes, W, H){
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  notes.forEach(n => {
+    ctx.strokeStyle = n.color; ctx.fillStyle = n.color; ctx.lineWidth = Math.max(1.5, n.w * W);
+    if (n.type === 'pen' && n.pts.length) {
+      ctx.beginPath(); ctx.moveTo(n.pts[0][0] * W, n.pts[0][1] * H);
+      if (n.pts.length === 1) ctx.lineTo(n.pts[0][0] * W + 0.1, n.pts[0][1] * H);
+      n.pts.slice(1).forEach(q => ctx.lineTo(q[0] * W, q[1] * H));
+      ctx.stroke();
+    } else if (n.type === 'arrow') {
+      const ax = n.a[0] * W, ay = n.a[1] * H, bx = n.b[0] * W, by = n.b[1] * H;
+      const ang = Math.atan2(by - ay, bx - ax), hl = Math.max(ctx.lineWidth * 4, W * 0.035);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx, by);
+      ctx.lineTo(bx - hl * Math.cos(ang - 0.45), by - hl * Math.sin(ang - 0.45));
+      ctx.lineTo(bx - hl * Math.cos(ang + 0.45), by - hl * Math.sin(ang + 0.45));
+      ctx.closePath(); ctx.fill();
+    } else if (n.type === 'text') {
+      const fs = n.size * W;
+      ctx.font = `700 ${fs}px sans-serif`; ctx.textBaseline = 'middle';
+      ctx.lineWidth = fs * 0.22; ctx.strokeStyle = (n.color === '#ffffff' || n.color === '#facc15') ? '#000' : '#fff';
+      ctx.strokeText(n.text, n.x * W, n.y * H); ctx.fillText(n.text, n.x * W, n.y * H);
+    }
+  });
+}
+// 詳細画面の一覧用：写真の上に書き込みを重ねて見せる（タップすると書き込み画面が開く）
+function renderPhotoWithNotes(p, src){
+  const wrap = document.createElement('div');
+  wrap.className = 'photo-note-wrap';
+  wrap.style.cssText = 'position:relative; line-height:0; cursor:pointer;';
+  const img = document.createElement('img'); img.src = src;
+  const cv = document.createElement('canvas');
+  cv.style.cssText = 'position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; border-radius:10px;';
+  wrap.appendChild(img); wrap.appendChild(cv);
+  const paint = () => {
+    const w = img.clientWidth, h = img.clientHeight; if (!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const notes = photoNotesVisible ? getPhotoNotes(p, src) : [];
+    drawPhotoNotes(cv.getContext('2d'), notes, cv.width, cv.height);
+  };
+  img.addEventListener('load', paint);
+  if (img.complete) setTimeout(paint, 0);
+  wrap.addEventListener('click', () => openPhotoViewer(p.id, src));
+  wrap._paint = paint;
+  return wrap;
+}
+const PHOTO_NOTE_COLORS = ['#ef4444', '#facc15', '#3b82f6', '#ffffff', '#111827'];
+function openPhotoViewer(pointId, src){
+  const p = points.find(x => x.id === pointId); if (!p) return;
+  let notes = JSON.parse(JSON.stringify(getPhotoNotes(p, src)));
+  const original = JSON.stringify(notes);
+  let tool = 'pen', color = PHOTO_NOTE_COLORS[0], visible = true, cur = null;
+  const ov = document.createElement('div');
+  ov.id = 'photoViewerOverlay';
+  ov.style.cssText = 'position:fixed; inset:0; background:#000; z-index:100010; display:flex; flex-direction:column; color:#fff;';
+  const btn = 'background:#374151; color:#fff; border:none; border-radius:10px; padding:9px 12px; font-size:13px; font-weight:700;';
+  ov.innerHTML = `
+    <div style="display:flex; gap:8px; align-items:center; padding:10px 12px; padding-top:calc(10px + env(safe-area-inset-top));">
+      <button type="button" id="pvClose" style="${btn}">✕ 閉じる</button>
+      <button type="button" id="pvVis" style="${btn} margin-left:auto;">👁 書き込み：表示</button>
+      <button type="button" id="pvSave" style="${btn} background:#2fa66a;">保存</button>
+    </div>
+    <div id="pvStage" style="flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+      <div id="pvBox" style="position:relative; line-height:0;"><img id="pvImg" style="max-width:100vw; display:block;"><canvas id="pvCv" style="position:absolute; left:0; top:0; width:100%; height:100%; touch-action:none;"></canvas></div>
+    </div>
+    <div id="pvTools" style="display:flex; gap:6px; align-items:center; justify-content:center; flex-wrap:wrap; padding:10px 12px; padding-bottom:calc(12px + env(safe-area-inset-bottom));">
+      <button type="button" data-tool="pen" style="${btn}">✏️ ペン</button>
+      <button type="button" data-tool="arrow" style="${btn}">➡️ 矢印</button>
+      <button type="button" data-tool="text" style="${btn}">🔤 文字</button>
+      <span id="pvColors" style="display:flex; gap:6px; margin:0 4px;"></span>
+      <button type="button" id="pvUndo" style="${btn}">↩️ 1つ戻す</button>
+      <button type="button" id="pvClear" style="${btn}">🗑️ 全部消す</button>
+    </div>`;
+  document.body.appendChild(ov);
+  const img = ov.querySelector('#pvImg'), cv = ov.querySelector('#pvCv'), box = ov.querySelector('#pvBox'), stage = ov.querySelector('#pvStage');
+  const fit = () => { // 画面に収まる大きさにそろえる（縦長の写真ははみ出さないように高さで決める）
+    img.style.maxHeight = stage.clientHeight + 'px';
+    const w = img.clientWidth, h = img.clientHeight; if (!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); redraw();
+  };
+  const redraw = () => {
+    const list = visible ? (cur ? notes.concat([cur]) : notes) : [];
+    drawPhotoNotes(cv.getContext('2d'), list, cv.width, cv.height);
+  };
+  img.addEventListener('load', fit); img.src = src; window.addEventListener('resize', fit);
+  const paintUI = () => {
+    ov.querySelectorAll('[data-tool]').forEach(b => { b.style.background = (b.dataset.tool === tool) ? '#e8862e' : '#374151'; });
+    ov.querySelector('#pvVis').textContent = visible ? '👁 書き込み：表示' : '🚫 書き込み：非表示';
+    ov.querySelectorAll('#pvColors button').forEach(b => { b.style.outline = (b.dataset.c === color) ? '3px solid #e8862e' : '2px solid #6b7280'; });
+    cv.style.pointerEvents = visible ? 'auto' : 'none';
+  };
+  const colorsEl = ov.querySelector('#pvColors');
+  PHOTO_NOTE_COLORS.forEach(c => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.c = c;
+    b.style.cssText = `width:28px; height:28px; border-radius:50%; border:none; background:${c}; padding:0;`;
+    b.addEventListener('click', () => { color = c; paintUI(); });
+    colorsEl.appendChild(b);
+  });
+  ov.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => { tool = b.dataset.tool; if (!visible) visible = true; paintUI(); redraw(); }));
+  ov.querySelector('#pvVis').addEventListener('click', () => { visible = !visible; setPhotoNotesVisible(visible); paintUI(); redraw(); });
+  ov.querySelector('#pvUndo').addEventListener('click', () => { notes.pop(); redraw(); });
+  ov.querySelector('#pvClear').addEventListener('click', () => { if (notes.length && confirm('この写真の書き込みを全部消しますか？')) { notes = []; redraw(); } });
+  const pos = (e) => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+  cv.addEventListener('pointerdown', (e) => {
+    if (!visible) return;
+    cv.setPointerCapture(e.pointerId); const q = pos(e);
+    if (tool === 'pen') cur = { type:'pen', color, w:0.006, pts:[q] };
+    else if (tool === 'arrow') cur = { type:'arrow', color, w:0.007, a:q, b:q };
+    else cur = { type:'text', color, size:0.05, x:q[0], y:q[1], text:'' };
+    redraw();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!cur) return; const q = pos(e);
+    if (cur.type === 'pen') cur.pts.push(q); else if (cur.type === 'arrow') cur.b = q;
+    redraw();
+  });
+  const finish = () => {
+    if (!cur) return;
+    const n = cur; cur = null;
+    if (n.type === 'text') {
+      const t = prompt('書き込む文字を入力してください'); // 置きたい場所をタップ→文字を入れる
+      if (t && t.trim()) { n.text = t.trim(); notes.push(n); }
+    } else if (n.type === 'arrow') {
+      if (Math.hypot((n.b[0] - n.a[0]) * cv.width, (n.b[1] - n.a[1]) * cv.height) > 8) notes.push(n);
+    } else notes.push(n);
+    redraw();
+  };
+  cv.addEventListener('pointerup', finish); cv.addEventListener('pointercancel', () => { cur = null; redraw(); });
+  const close = () => { window.removeEventListener('resize', fit); ov.remove(); };
+  ov.querySelector('#pvClose').addEventListener('click', () => {
+    if (JSON.stringify(notes) !== original && !confirm('保存していない書き込みがあります。閉じますか？')) return;
+    close();
+  });
+  ov.querySelector('#pvSave').addEventListener('click', async () => {
+    const key = photoKey(src);
+    p.photoNotes = p.photoNotes || {};
+    if (notes.length) p.photoNotes[key] = notes; else delete p.photoNotes[key];
+    p.updatedAt = Date.now();
+    await savePoints();
+    close();
+    if (document.getElementById('detailOverlay').classList.contains('open') && selectedPointId === p.id) openDetailSheet(p.id);
+  });
+  paintUI();
+}
+
 function openDetailSheet(id){
   const p = points.find(pt => pt.id === id);
   if (!p) return;
@@ -5704,11 +5870,23 @@ function openDetailSheet(id){
 
   const photosEl = document.getElementById('detailPhotos');
   photosEl.innerHTML = '';
-  (p.photos || []).forEach(photo => {
-    const img = document.createElement('img');
-    img.src = photo;
-    photosEl.appendChild(img);
-  });
+  if ((p.photos || []).length) {
+    // 書き込みの表示オン／オフ（写真をタップすると書き込み画面が開く）
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px; color:var(--sub);';
+    const tg = document.createElement('button');
+    tg.type = 'button'; tg.className = 'copy-btn';
+    const paintTg = () => { tg.textContent = photoNotesVisible ? '✍️ 書き込み：表示' : '✍️ 書き込み：非表示'; };
+    paintTg();
+    tg.addEventListener('click', () => {
+      setPhotoNotesVisible(!photoNotesVisible); paintTg();
+      photosEl.querySelectorAll('.photo-note-wrap').forEach(w => w._paint && w._paint());
+    });
+    bar.appendChild(tg);
+    const hint = document.createElement('span'); hint.textContent = '写真をタップで書き込み'; bar.appendChild(hint);
+    photosEl.appendChild(bar);
+  }
+  (p.photos || []).forEach(photo => photosEl.appendChild(renderPhotoWithNotes(p, photo)));
 
   const boxRow = document.getElementById('detailBoxPasswordRow');
   if (p.boxPassword) {
@@ -5774,6 +5952,7 @@ function renderDetailQuickBar(p){
     const img = document.createElement('img');
     img.src = photo;
     img.style.cssText = 'height:64px; width:64px; object-fit:cover; border-radius:8px; flex-shrink:0;';
+    img.addEventListener('click', () => openPhotoViewer(p.id, photo));
     thumbs.appendChild(img);
   });
   thumbs.style.display = (p.photos && p.photos.length) ? 'flex' : 'none';
