@@ -1074,7 +1074,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-B（写真への書き込み）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-C（まとめ円の件数）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -3762,10 +3762,12 @@ function renderAreaBubbles(visiblePoints, level){
     const pending = g.pts.filter(p => p.status !== 'done').length;
     const lat = g.pts.reduce((sum, p) => sum + p.lat, 0) / total;
     const lng = g.pts.reduce((sum, p) => sum + p.lng, 0) / total;
-    const size = 64; // 件数では数えないので、大きさは一定
+    const size = Math.round(Math.max(58, Math.min(112, 44 + Math.sqrt(total) * 10))); // 件数が多いほど少し大きく
     const color = pending === 0 ? '#9CA3AF' : (level === 'ward' ? '#E8862E' : '#7C3AED');
+    const big = areaBigCount === 'pending' ? pending : total;
+    const small = areaBigCount === 'pending' ? `全${total}件` : `未完了 ${pending}`;
     const html = `<div class="area-bubble" style="width:${size}px; height:${size}px; background:${color};">
-        <span style="font-size:13px;">${escapeHtml(g.label)}</span></div>`;
+        <span>${escapeHtml(g.label)}</span><b>${big}</b><small>${small}</small></div>`;
     const icon = L.divIcon({ className:'', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
     const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 }).addTo(areaLayer);
     marker.on('click', () => {
@@ -3806,6 +3808,9 @@ function openAreaModeDialog(){
     ${opt('auto','自動（おすすめ）','引くとエリア、寄るとピン')}
     ${opt('pin','いつもピン','今までどおり、すべての地点をピンで表示')}
     ${opt('area','いつもエリア','拡大してもエリアの丸のまま（町名ごと）')}
+    <div style="font-size:13px; font-weight:700; margin:12px 0 4px;">丸の大きな数字</div>
+    <label style="margin-right:14px;"><input type="radio" name="areaBigRadio" value="all" ${areaBigCount==='all'?'checked':''}> 全件</label>
+    <label><input type="radio" name="areaBigRadio" value="pending" ${areaBigCount==='pending'?'checked':''}> 未完了だけ</label>
     <div style="font-size:13px; font-weight:700; margin:14px 0 4px;">切り替わる拡大率（自動のとき）</div>
     <div id="areaZoomRow" style="display:flex; flex-direction:column; gap:6px; font-size:13px;"></div>
     <div style="font-size:11px; color:var(--sub); margin-top:6px;">この数字より引くと、区ごと／町名ごとの丸になります。</div>
@@ -3830,6 +3835,9 @@ function openAreaModeDialog(){
   ov.querySelectorAll('input[name=areaModeRadio]').forEach(r => r.addEventListener('change', () => {
     areaMode = r.value; saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn();
     ov.querySelectorAll('input[name=areaModeRadio]').forEach(x => { x.parentElement.style.borderColor = x.checked ? 'var(--orange)' : 'var(--line)'; });
+  }));
+  ov.querySelectorAll('input[name=areaBigRadio]').forEach(r => r.addEventListener('change', () => {
+    areaBigCount = r.value; saveAreaSettings(); renderAllMarkers();
   }));
   const close = () => ov.remove();
   ov.querySelector('#areaDlgClose').addEventListener('click', close);
