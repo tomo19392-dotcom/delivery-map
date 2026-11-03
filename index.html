@@ -152,6 +152,8 @@
   #map{ position:absolute; left:0; top:0; right:0; bottom:0; }
   /* 進行方向を上にしている間：地図は回るが、ピンの文字や絵は逆に回して常に正立にする */
   #map.head-up .leaflet-marker-icon > *:first-child{ rotate:var(--unrot,0deg); transform-origin:var(--ox,50%) var(--oy,50%); }
+  /* 一方通行などの矢印スタンプは「地図上の方角」を示すので、地図を回した時は地図と一緒に回す（向きが変わらないように） */
+  #map.head-up .stamp-badge.stamp-dir{ rotate:calc(-1 * var(--unrot, 0deg)); }
   #map.head-up .leaflet-marker-icon > .stop-dir-icon,
   #map.head-up .leaflet-marker-icon.rot-follow > *:first-child{ rotate:none; }
   /* 回転中は地図の著作権表示も一緒に回ってしまうので、回らない同じ文言のものに差し替える */
@@ -1072,7 +1074,7 @@
     <button class="sheet-close-x" id="closeSearchXBtn">✕</button>
     <div class="sheet-fixed-top">
       <div class="handle"></div>
-      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1026-D（出発地点の固定・修正ボタン）</span></h2>
+      <h2>🔍 地点を検索 <span style="font-size:10px; font-weight:400; color:var(--sub); margin-left:6px;">版 1027-A（まとめ円の整理・追従位置・矢印）</span></h2>
       <input type="text" id="searchInput" name="deliveryMapSearch_nofill" placeholder="住所・メモ・パスワードなどで検索"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         style="width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:var(--paper); color:var(--ink);" />
@@ -2797,7 +2799,7 @@ function initMap(){
         setFollowMyLocation(false); // 追従中にもう一度押したら解除する
         return;
       }
-      map.setView(myMarker.getLatLng(), Math.max(map.getZoom(), 16));
+      { const z = Math.max(map.getZoom(), 16); map.setView(followCenter(myMarker.getLatLng(), z), z); }
       setFollowMyLocation(true); // 追従モードを開始する（もう一度押すと解除）
       return;
     }
@@ -2832,6 +2834,16 @@ function initMap(){
 // 自分の位置が動くのに合わせて地図も追いかけるモードにする。
 // 地図を手で動かしたら自動的に解除する（追従と手動操作がケンカしないように）。
 let followMyLocation = false;
+// 追従中は、現在地を画面の中央ではなく少し下（約68%の高さ）に置く。進む先が広く見えるようにするため。
+const FOLLOW_OFFSET_RATIO = 0.18;
+function followCenter(latlng, zoom){
+  const z = (zoom === undefined) ? map.getZoom() : zoom;
+  const wrap = document.getElementById('mapWrap');
+  const d = (wrap ? wrap.clientHeight : 0) * FOLLOW_OFFSET_RATIO;
+  const th = (headUpEnabled ? mapRotDeg : 0) * Math.PI / 180; // 回している時は、画面の「下」に当たる向きへずらす
+  const pt = map.project(L.latLng(latlng), z).subtract(L.point(d * Math.sin(th), d * Math.cos(th)));
+  return map.unproject(pt, z);
+}
 function setFollowMyLocation(on){
   followMyLocation = on;
   const btn = document.getElementById('recenterBtn');
@@ -3472,7 +3484,7 @@ function startWatchingMyLocation(){
       if (motionNow.heading !== null) myHeading = motionNow.heading;
       placeMyMarker(latlng, null);
       if (firstTime) map.setView(latlng, 16); // 初回取得時に現在地へ移動
-      else if (followMyLocation) map.panTo(latlng); // 追従モード中は、動くたびに地図も追いかける
+      else if (followMyLocation) map.panTo(followCenter(latlng)); // 追従モード中は、動くたびに地図も追いかける
       updateAutoRotation(motionNow);
       handleTracePoint(pos.coords.latitude, pos.coords.longitude, Date.now());
       handleTrailPoint(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
@@ -3575,7 +3587,7 @@ async function savePoints(){
 
 function updateCount(){
   // 「完了」件数は今は使わない方針のため、単純な件数表示に戻す
-  document.getElementById('pointCount').textContent = `地点：${points.length}件`;
+  document.getElementById('pointCount').textContent = `地点：${points.filter(p => p.type === 'delivery').length}件`; // 停車位置は数えない
 }
 
 // ---------- マーカー描画 ----------
@@ -3701,7 +3713,7 @@ function parseAreaFromAddress(addr){
   if (big) {
     const t = rest.match(/^([^\d\-ー丁番号]{1,10}?)(?:[〇一二三四五六七八九十]+丁目|\d|$)/);
     const town = (t && t[1]) ? t[1] : '';
-    result = { wardKey: city + big, ward: big, townKey: city + big + '/' + town, town: town || (big + '（町名不明）') };
+    result = { wardKey: city + big, ward: big, townKey: city + big + '/' + town, town: town, townUnknown: !town };
   }
   areaParseCache.set(addr, result);
   return result;
@@ -3735,11 +3747,13 @@ function currentAreaLevel(){
 function renderAreaBubbles(visiblePoints, level){
   areaLayer.clearLayers();
   const groups = new Map();
+  const leftover = []; // 住所が無い・町名が読み取れない地点は、丸にまとめずピンのまま出す
   visiblePoints.forEach(p => {
     if (p.type !== 'delivery') return;
     const a = parseAreaFromAddress(p.address);
-    const key = a ? (level === 'ward' ? a.wardKey : a.townKey) : '__none__';
-    const label = a ? (level === 'ward' ? a.ward : a.town) : '住所なし';
+    if (!a || (level === 'town' && a.townUnknown)) { leftover.push(p); return; }
+    const key = level === 'ward' ? a.wardKey : a.townKey;
+    const label = level === 'ward' ? a.ward : a.town;
     if (!groups.has(key)) groups.set(key, { label, pts: [] });
     groups.get(key).pts.push(p);
   });
@@ -3748,12 +3762,10 @@ function renderAreaBubbles(visiblePoints, level){
     const pending = g.pts.filter(p => p.status !== 'done').length;
     const lat = g.pts.reduce((sum, p) => sum + p.lat, 0) / total;
     const lng = g.pts.reduce((sum, p) => sum + p.lng, 0) / total;
-    const size = Math.round(Math.max(54, Math.min(112, 40 + Math.sqrt(total) * 10)));
+    const size = 64; // 件数では数えないので、大きさは一定
     const color = pending === 0 ? '#9CA3AF' : (level === 'ward' ? '#E8862E' : '#7C3AED');
-    const big = areaBigCount === 'pending' ? pending : total;
-    const small = areaBigCount === 'pending' ? `全${total}件` : `未完了 ${pending}`;
     const html = `<div class="area-bubble" style="width:${size}px; height:${size}px; background:${color};">
-        <span>${escapeHtml(g.label)}</span><b>${big}</b><small>${small}</small></div>`;
+        <span style="font-size:13px;">${escapeHtml(g.label)}</span></div>`;
     const icon = L.divIcon({ className:'', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
     const marker = L.marker([lat, lng], { icon, zIndexOffset: 500 }).addTo(areaLayer);
     marker.on('click', () => {
@@ -3771,6 +3783,7 @@ function renderAreaBubbles(visiblePoints, level){
       map.setView(bounds.getCenter(), (areaMode === 'area' && level === 'town') ? Math.min(z, 18) : z);
     });
   });
+  return leftover;
 }
 function areaModeLabel(){
   const names = { auto:'自動', pin:'ピン', area:'エリア' };
@@ -3793,9 +3806,6 @@ function openAreaModeDialog(){
     ${opt('auto','自動（おすすめ）','引くとエリア、寄るとピン')}
     ${opt('pin','いつもピン','今までどおり、すべての地点をピンで表示')}
     ${opt('area','いつもエリア','拡大してもエリアの丸のまま（町名ごと）')}
-    <div style="font-size:13px; font-weight:700; margin:12px 0 4px;">丸の大きな数字</div>
-    <label style="margin-right:14px;"><input type="radio" name="areaBigRadio" value="all" ${areaBigCount==='all'?'checked':''}> 全件</label>
-    <label><input type="radio" name="areaBigRadio" value="pending" ${areaBigCount==='pending'?'checked':''}> 未完了だけ</label>
     <div style="font-size:13px; font-weight:700; margin:14px 0 4px;">切り替わる拡大率（自動のとき）</div>
     <div id="areaZoomRow" style="display:flex; flex-direction:column; gap:6px; font-size:13px;"></div>
     <div style="font-size:11px; color:var(--sub); margin-top:6px;">この数字より引くと、区ごと／町名ごとの丸になります。</div>
@@ -3820,9 +3830,6 @@ function openAreaModeDialog(){
   ov.querySelectorAll('input[name=areaModeRadio]').forEach(r => r.addEventListener('change', () => {
     areaMode = r.value; saveAreaSettings(); renderAllMarkers(); updateAreaModeBtn();
     ov.querySelectorAll('input[name=areaModeRadio]').forEach(x => { x.parentElement.style.borderColor = x.checked ? 'var(--orange)' : 'var(--line)'; });
-  }));
-  ov.querySelectorAll('input[name=areaBigRadio]').forEach(r => r.addEventListener('change', () => {
-    areaBigCount = r.value; saveAreaSettings(); renderAllMarkers();
   }));
   const close = () => ov.remove();
   ov.querySelector('#areaDlgClose').addEventListener('click', close);
@@ -3868,7 +3875,8 @@ function renderAllMarkers(){
   if (areaLevel !== 'pin') {
     // 引いた表示：配達先はエリアの丸にまとめる。拠点（🚩）だけは目印なのでピンのまま出す
     stopMarkersLayer.clearLayers();
-    renderAreaBubbles(visiblePoints, areaLevel);
+    const leftover = renderAreaBubbles(visiblePoints, areaLevel);
+    leftover.forEach(p => addMarkerToMap(p));
     visiblePoints.filter(p => p.type === 'parking' && p.isBase).forEach(p => addMarkerToMap(p));
     updateCount();
     return;
@@ -6343,7 +6351,7 @@ function addStampToMap(s){
   const icon = L.divIcon({
     className:'',
     html: `<div style="position:relative; width:32px; height:${hasTime ? 48 : 32}px;">
-      <div class="stamp-badge" style="border-color:${t.color}; transform:rotate(${rotation}deg);">${t.emoji}</div>
+      <div class="stamp-badge${s.type === 'one_way' ? ' stamp-dir' : ''}" style="border-color:${t.color}; transform:rotate(${rotation}deg);">${t.emoji}</div>
       ${hasTime ? `<div style="position:absolute; top:33px; left:50%; transform:translateX(-50%);
         background:rgba(17,24,39,.85); color:#fff; font-size:9px; padding:1px 5px; border-radius:5px; white-space:nowrap;">${s.timeStart}〜${s.timeEnd}</div>` : ''}
     </div>`,
